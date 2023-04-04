@@ -94,44 +94,10 @@ def get_patient_data(patient_hisno: ft.TextButton, patient_name: ft.Text):
                 auto.Logger.WriteLine(f"Something wrong", auto.ConsoleColor.Red)
                 time.sleep(0.2)
 
-# FIXME
-# def search_window(window, retry=5, topmost=False):  
-#     '''
-#     找尋傳入的window物件重覆retry次, 找到後會將其取得focus和可以選擇是否topmost, 若找不到會常識判斷其process有沒有responding
-#     retry<0: 無限等待 => 等待OPD系統開啟用
-#     '''
-#     # TODO 可以加上判斷物件是否IsEnabled => 這樣可以防止雖然找得到視窗或物件但其實無法對其操作
-#     _retry = retry
-#     try:
-#         while retry != 0:
-#             if window.Exists():
-#                 auto.Logger.WriteLine(
-#                     f"Window found: {window.GetSearchPropertiesStr()}", auto.ConsoleColor.Yellow)
-#                 window.SetActive()  # 這有甚麼用??
-#                 window.SetTopmost(True)
-#                 if topmost is False:
-#                     window.SetTopmost(False)
-#                 window.SetFocus()
-#                 return window
-#             else:
-#                 if process_responding():
-#                     auto.Logger.WriteLine(f"Window not found: {window.GetSearchPropertiesStr()}", auto.ConsoleColor.Red)
-#                     retry = retry-1
-#                 else:
-#                     auto.Logger.WriteLine(f"Process not responding", auto.ConsoleColor.Red)
-#                 time.sleep(1)
-#         auto.Logger.WriteLine(f"Window not found(after {_retry} times): {window.GetSearchPropertiesStr()}", auto.ConsoleColor.Red)
-#         captureimage()
-#         return None
-#     except Exception as err:
-#         auto.Logger.WriteLine(f"Something wrong unexpected: {window.GetSearchPropertiesStr()}", auto.ConsoleColor.Red)
-#         print(err) # TODO remove in the future
-#         captureimage()
-#         return search_window(window, retry=retry) # 目前使用遞迴處理 => 會無窮迴圈後續要考慮新方式 # TODO
-
 
 def set_O(text_input, location=0, replace=0):
     return set_text('o', text_input, location, replace)
+
 
 def set_text(panel, text_input, location=0, replace=0) -> str:
     # panel = 's','o','p'
@@ -180,6 +146,16 @@ def set_text(panel, text_input, location=0, replace=0) -> str:
                 return "No edit control"
 
 
+def setWindowLeftMiddle(page: Page):
+    import ctypes
+    user32 = ctypes.windll.user32
+    width, height = user32.GetSystemMetrics(0), user32.GetSystemMetrics(1)
+
+    page.window_top = (height - page.height)/2
+    page.window_left = 0
+    page.update()
+
+
 def setWindowRightMiddle(page: Page):
     import ctypes
     user32 = ctypes.windll.user32
@@ -205,48 +181,43 @@ def main(page: Page):
         page.update()
         time.sleep(0.7)
     
-    def save(e):
-        # TODO 存入資料庫
-        notify("已存入資料庫")
+    # def save(e):
+    #     # TODO 存入資料庫
+    #     notify("已存入資料庫")
 
 
-    def save_opd(e):
-        # 把測量值的文字組出來
-        # TODO 重寫
-        final_text = ''
-        for i in ctrl_basic:
-            text = i.format_text()
-            if text != '':
-                if final_text == '':
-                    final_text = text
-                else:
-                    final_text = final_text + '\r\n' + text
-        print(f"final_text: {final_text}")
-        text = set_O(final_text)
-        notify(text=text)
-        save(e)
-
+    # def save_opd(e):
+    #     # 把測量值的文字組出來
+    #     # TODO 重寫
+    #     final_text = ''
+    #     for i in ctrl_basic:
+    #         text = i.format_text()
+    #         if text != '':
+    #             if final_text == '':
+    #                 final_text = text
+    #             else:
+    #                 final_text = final_text + '\r\n' + text
+    #     print(f"final_text: {final_text}")
+    #     text = set_O(final_text)
+    #     notify(text=text)
+    #     save(e)
 
     def page_resize(e):
         print("New page size:", page.window_width, page.window_height)
-        cas.update()
-        page.update()
 
+    # def reset(e):
+    #     tabs.selected_index = 0
+    #     page.update()
 
-    def reset(e):
-        tabs.selected_index = 0
-        page.update()
-
-
-    def on_keyboard(e: ft.KeyboardEvent): # 支援組合鍵快捷
-        if e.alt and e.key == 'D':
-            reset_basic(e)
-        elif e.alt and e.key == 'S':
-            save(e)
-        elif e.alt and e.key == 'A':
-            save_opd(e)
-        elif e.alt and e.key == 'F':
-            pass
+    # def on_keyboard(e: ft.KeyboardEvent): # 支援組合鍵快捷
+    #     if e.alt and e.key == 'D':
+    #         reset_basic(e)
+    #     elif e.alt and e.key == 'S':
+    #         save(e)
+    #     elif e.alt and e.key == 'A':
+    #         save_opd(e)
+    #     elif e.alt and e.key == 'F':
+    #         pass
     
     #################################################### Window settings
     # page.show_semantics_debugger = True # for testing
@@ -260,7 +231,7 @@ def main(page: Page):
     page.horizontal_alignment = ft.CrossAxisAlignment.CENTER
     # page.window_title_bar_hidden = True
     page.scroll = "adaptive"
-    page.on_keyboard_event = on_keyboard    
+    # page.on_keyboard_event = on_keyboard    
     # page.theme_mode = 'dark'
     
     # 預設snackbar => 底部欄位通知
@@ -317,12 +288,13 @@ def main(page: Page):
     )
 
     ########################## tab merge
+    AllForm = SDES_form.forms
     tabs = ft.Tabs(
-        selected_index=2,
-        animation_duration=250,
-        tabs=SDES_form.forms(),
-        expand=False,
-        height=420,
+        selected_index = 2,
+        animation_duration = 250,
+        tabs = AllForm.form_list,
+        expand = False,
+        height = 420,
     )
     
     tabview = ft.Column( # 加上裝飾divider的tabs
@@ -338,8 +310,8 @@ def main(page: Page):
     ########################## submit
     submit = ft.Row(
         controls=[
-            ft.FilledTonalButton("帶回門診", icon=ft.icons.ARROW_BACK, expand=True, on_click=save_opd),
-            ft.OutlinedButton("儲存",icon=ft.icons.ARROW_CIRCLE_DOWN_ROUNDED, expand=True, on_click=save),
+            ft.FilledTonalButton("帶回門診", icon=ft.icons.ARROW_BACK, expand=True, on_click=AllForm.data_format()),
+            ft.OutlinedButton("儲存",icon=ft.icons.ARROW_CIRCLE_DOWN_ROUNDED, expand=True, on_click=AllForm.db_save()),
             ft.OutlinedButton(
                 "清除表格",
                 style=ft.ButtonStyle(
@@ -350,7 +322,7 @@ def main(page: Page):
                 icon=ft.icons.DELETE_FOREVER_OUTLINED, 
                 icon_color='red', 
                 expand=True,
-                on_click = reset
+                on_click = AllForm.data_clear()
             ),
             ft.OutlinedButton("測試",icon=ft.icons.ARROW_CIRCLE_DOWN_ROUNDED, expand=True, on_click=None),
         ],
