@@ -58,7 +58,7 @@ def captureimage(control = None, postfix = ''):
     c.CaptureToImage(path)
 
 
-def get_patient_data(patient_hisno: ft.TextButton, patient_name: ft.Text):
+def patient_data_autoset(patient_hisno: ft.TextButton, patient_name: ft.Text):
     old_p_dict = None
     state = -1
     with auto.UIAutomationInitializerInThread():
@@ -146,79 +146,141 @@ def set_text(panel, text_input, location=0, replace=0) -> str:
                 return "No edit control"
 
 
-def setWindowLeftMiddle(page: Page):
-    import ctypes
-    user32 = ctypes.windll.user32
-    width, height = user32.GetSystemMetrics(0), user32.GetSystemMetrics(1)
-
-    page.window_top = (height - page.height)/2
-    page.window_left = 0
-    page.update()
-
-
-def setWindowRightMiddle(page: Page):
-    import ctypes
-    user32 = ctypes.windll.user32
-    width, height = user32.GetSystemMetrics(0), user32.GetSystemMetrics(1)
-
-    page.window_top = (height - page.height)/2
-    page.window_left = width - page.window_width
-    page.update()
-
 
 def main(page: Page):
     #################################################### functions
+    def setWindowLeftMiddle():
+        import ctypes
+        user32 = ctypes.windll.user32
+        width, height = user32.GetSystemMetrics(0), user32.GetSystemMetrics(1)
+
+        page.window_top = (height - page.height)/2
+        page.window_left = 0
+        page.update()
+
+    def setWindowRightMiddle():
+        import ctypes
+        user32 = ctypes.windll.user32
+        width, height = user32.GetSystemMetrics(0), user32.GetSystemMetrics(1)
+
+        page.window_top = (height - page.height)/2
+        page.window_left = width - page.window_width
+        page.update()
+
     def toggle_patient_data(e):
         patient_hisno.visible = not patient_hisno.visible
         patient_name.visible = not patient_name.visible
         patient_row_manual.visible = not patient_row_manual.visible
         patient_column.update()
         
-    
     def notify(text: str):
         page.snack_bar.content = ft.Text(text)
         page.snack_bar.open = True
         page.update()
         time.sleep(0.7)
+
+    # TODO 需要重構
+    doctor_id = ft.TextField(label="Doctor ID", hint_text="Please enter short code of doctor ID(EX:4123)", dense=True, height=45)
+    date_mode = ft.Dropdown(
+        options=[
+            ft.dropdown.Option(key=1, text='西元紀年'),
+            ft.dropdown.Option(key=2, text='民國紀年'),
+            ft.dropdown.Option(key=3, text='西元紀年(2位數)'),
+        ],
+        dense=True, height=45, content_padding = 10, value=1
+    )
+    host = ft.TextField(label="HOST IP", value='localhost', dense=True, height=45)
+    port = ft.TextField(label="PORT", value='5432', dense=True, height=45)
+    dbname = ft.TextField(label="DB NAME", value='vgh_oph', dense=True, height=45)
+    user = ft.TextField(label="USER NAME", value='postgres', dense=True, height=45)
+    psw = ft.TextField(label="PASSWORD", password=True, dense=True, height=45)
+
+    def setting_set(e=None):
+        AllForm.set_doctor_id(doctor_id.value)
+        custom_title.value = f"病歷結構化輸入系統 [DOC:{doctor_id.value}]"
+        SDES_form.DATE_MODE = date_mode.value
+        SDES_form.HOST = host.value
+        SDES_form.PORT = port.value
+        SDES_form.DBNAME = dbname.value
+        SDES_form.USER = user.value
+        SDES_form.PASSWORD = psw.value
+        view_pop()
+
+    def setting_show_all(e=None):
+        view_setting = ft.View(
+            route = "/setting",
+            appbar=ft.AppBar( 
+                title=ft.Row([
+                        ft.WindowDragArea(ft.Container(ft.Text("系統設定", size=15, weight=ft.FontWeight.BOLD), alignment=ft.alignment.center_left, padding=ft.padding.only(bottom=3)), expand=True),
+                        ft.IconButton(ft.icons.CLOSE, on_click=lambda _: page.window_close(), icon_size = 25, tooltip = 'Close')
+                    ]),
+                center_title=False,
+                bgcolor=ft.colors.SURFACE_VARIANT,
+                # toolbar_height=30  # 目前無法改變回上一頁按鍵大小
+            ),
+            controls=[
+                ft.Column(
+                    controls=[
+                        doctor_id, 
+                        date_mode, 
+                        host, 
+                        port, 
+                        dbname, 
+                        user, 
+                        psw,
+                        ft.Row(
+                            controls=[ft.ElevatedButton("設定", on_click=setting_set, expand=True)]
+                        ),
+                    ]
+                ),
+            ],
+        )
+
+        page.views.append(view_setting)
+        page.update()
     
-    # def save(e):
-    #     # TODO 存入資料庫
-    #     notify("已存入資料庫")
 
+    def setting_show_doctorid(e):
+        pass
+    
 
-    # def save_opd(e):
-    #     # 把測量值的文字組出來
-    #     # TODO 重寫
-    #     final_text = ''
-    #     for i in ctrl_basic:
-    #         text = i.format_text()
-    #         if text != '':
-    #             if final_text == '':
-    #                 final_text = text
-    #             else:
-    #                 final_text = final_text + '\r\n' + text
-    #     print(f"final_text: {final_text}")
-    #     text = set_O(final_text)
-    #     notify(text=text)
-    #     save(e)
-
-    def page_resize(e):
-        print("New page size:", page.window_width, page.window_height)
-
-    # def reset(e):
-    #     tabs.selected_index = 0
+    def on_keyboard(e: ft.KeyboardEvent): # 支援組合鍵快捷
+        if e.alt and e.key == 'Q':
+            save_opd_db(e)
+        elif e.alt and e.key == 'A':
+            AllForm.data_clear()
+        elif e.alt and e.key == 'W':
+            save_db(e)
+        elif e.alt and e.key == 'S':
+            load_db_one(e)
+    
+    # def route_change(route):
+    #     page.views.clear()
+    #     page.views.append(
+    #         ft.View(
+    #             "/",
+    #             [
+    #                 ft.AppBar(title=ft.Text("Flet app"), bgcolor=ft.colors.SURFACE_VARIANT),
+    #                 ft.ElevatedButton("Visit Store", on_click=lambda _: page.go("/store")),
+    #             ],
+    #         )
+    #     )
+    #     if page.route == "/store":
+    #         page.views.append(
+    #             ft.View(
+    #                 "/store",
+    #                 [
+    #                     ft.AppBar(title=ft.Text("Store"), bgcolor=ft.colors.SURFACE_VARIANT),
+    #                     ft.ElevatedButton("Go Home", on_click=lambda _: page.go("/")),
+    #                 ],
+    #             )
+    #         )
     #     page.update()
 
-    # def on_keyboard(e: ft.KeyboardEvent): # 支援組合鍵快捷
-    #     if e.alt and e.key == 'D':
-    #         reset_basic(e)
-    #     elif e.alt and e.key == 'S':
-    #         save(e)
-    #     elif e.alt and e.key == 'A':
-    #         save_opd(e)
-    #     elif e.alt and e.key == 'F':
-    #         pass
-    
+    def view_pop(e=None):
+        page.views.pop()
+        page.update()
+
     #################################################### Window settings
     # page.show_semantics_debugger = True # for testing
     page.title = "Structured Data Entry System"
@@ -230,18 +292,36 @@ def main(page: Page):
     page.spacing = 20
     page.horizontal_alignment = ft.CrossAxisAlignment.CENTER
     # page.window_title_bar_hidden = True
-    page.scroll = "adaptive"
-    # page.on_keyboard_event = on_keyboard    
+    page.scroll = ft.ScrollMode.AUTO
+    page.on_keyboard_event = on_keyboard    
     # page.theme_mode = 'dark'
     
-    # 預設snackbar => 底部欄位通知
+    # Appbar => 頂部工作列
+    page.window_title_bar_hidden = True
+    page.window_title_bar_buttons_hidden = True
+    custom_title = ft.Text("病歷結構化輸入系統 [尚未輸入醫師ID]", size=15, weight=ft.FontWeight.BOLD)
+    page.appbar = ft.AppBar(
+        leading=ft.Icon(ft.icons.DOUBLE_ARROW),
+        leading_width=20,
+        title=ft.Row([
+                ft.WindowDragArea(ft.Container(custom_title, alignment=ft.alignment.center_left, padding=ft.padding.only(bottom=3)), expand=True),
+                ft.IconButton(ft.icons.SETTINGS, on_click= setting_show_all, icon_size = 20, tooltip = 'Setting'),
+                ft.IconButton(ft.icons.CLOSE, on_click=lambda _: page.window_close(), icon_size = 20, tooltip = 'Close')
+            ]),
+        center_title=False,
+        bgcolor=ft.colors.SURFACE_VARIANT,
+        toolbar_height=30,
+    )
+    
+    # Snackbar => 底部欄位通知
     page.snack_bar = ft.SnackBar(
         content=ft.Text("系統通知"),
     )
+    setWindowRightMiddle()
 
-    page.on_resize = page_resize
-    setWindowRightMiddle(page=page)
-    page.update()
+    # page.on_route_change = route_change
+    page.on_view_pop = view_pop # 點擊改變view後自動產生的回上一頁按鈕
+    # page.go(page.route)
 
     #################################################### Contents
     ########################## patient infomation
@@ -266,7 +346,7 @@ def main(page: Page):
         visible=False,
     )
     patient_hisno = ft.TextButton(
-        content= ft.Text("擷取病歷號", style=ft.TextThemeStyle.DISPLAY_MEDIUM, text_align='center'),
+        content= ft.Text("擷取病歷號", style=ft.TextThemeStyle.HEADLINE_MEDIUM, text_align='center'),
         style=ft.ButtonStyle(
             padding=0
         ),
@@ -276,7 +356,7 @@ def main(page: Page):
         # disabled=True,
         # on_hover=
     )
-    patient_name = ft.Text("擷取病人姓名", style=ft.TextThemeStyle.DISPLAY_MEDIUM, text_align='center', visible=True)
+    patient_name = ft.Text("擷取病人姓名", style=ft.TextThemeStyle.HEADLINE_MEDIUM, text_align='center', visible=True)
     patient_column = ft.Column(
         controls=[
             patient_row_manual, 
@@ -290,13 +370,12 @@ def main(page: Page):
     ########################## tab merge
     AllForm = SDES_form.forms
     tabs = ft.Tabs(
-        selected_index = 2,
+        selected_index = 0, # index從0開始
         animation_duration = 250,
         tabs = AllForm.form_list,
         expand = False,
-        height = 420,
+        height = 435,
     )
-    
     tabview = ft.Column( # 加上裝飾divider的tabs
         controls=[
             ft.Divider(height=0, thickness=3),
@@ -306,35 +385,106 @@ def main(page: Page):
         spacing=0,
         alignment=ft.MainAxisAlignment.START
     )
+    
+    ########################## submit functions
+
+    def patient_data_check() -> dict:
+        return_dict = {
+            'patient_hisno': None,
+            'patient_name': None,
+        }
+        if patient_hisno.visible == False: # 手動輸入病人資訊
+            _patient_hisno = str(patient_hisno_manual.value).strip()
+            if _patient_hisno =='':
+                notify("無法取得病人病歷號")
+                return False
+            else:
+                return_dict['patient_hisno'] = _patient_hisno
+        else: # 病人資訊自動模式
+            _patient_hisno = patient_hisno.content.value
+            _patient_name = patient_name.value
+            if _patient_hisno == '擷取病歷號':
+                notify("無法取得病人病歷號")
+                return False
+            else:
+                return_dict['patient_hisno'] = _patient_hisno
+                return_dict['patient_name'] = _patient_name
+        return return_dict
+
+    def load_db_one(e):
+        patient = patient_data_check()
+        if patient != False:
+            AllForm.db_load_one(patient_hisno=patient['patient_hisno'], tab_index=tabs.selected_index)
+            # notify成功讀取 => 已經有display通知?
+
+    
+    def save_db(e):
+        patient = patient_data_check()
+        if patient != False:
+            AllForm.db_save(**patient) # 傳入{'patient_hisno':..., 'patient_name':...,}
+            notify("完成資料儲存")
+
+    def save_opd_db(e):
+        patient = patient_data_check()
+        if patient != False:
+            pass
 
     ########################## submit
-    submit = ft.Row(
-        controls=[
-            ft.FilledTonalButton("帶回門診", icon=ft.icons.ARROW_BACK, expand=True, on_click=AllForm.data_format()),
-            ft.OutlinedButton("儲存",icon=ft.icons.ARROW_CIRCLE_DOWN_ROUNDED, expand=True, on_click=AllForm.db_save()),
-            ft.OutlinedButton(
-                "清除表格",
-                style=ft.ButtonStyle(
-                    color={
-                        ft.MaterialState.DEFAULT: ft.colors.RED,
-                    },
+    submit = ft.Column([
+        ft.Row(
+            controls=[
+                ft.FilledTonalButton(
+                    text = "帶回門診(Q)",
+                    height = 30, 
+                    icon=ft.icons.ARROW_BACK, 
+                    expand=True, 
+                    on_click = save_opd_db
                 ),
-                icon=ft.icons.DELETE_FOREVER_OUTLINED, 
-                icon_color='red', 
-                expand=True,
-                on_click = AllForm.data_clear()
-            ),
-            ft.OutlinedButton("測試",icon=ft.icons.ARROW_CIRCLE_DOWN_ROUNDED, expand=True, on_click=None),
-        ],
-        alignment=ft.MainAxisAlignment.CENTER,
-    )
+                ft.OutlinedButton(
+                    text = "儲存資料庫(W)",
+                    height = 30,
+                    icon=ft.icons.ARROW_CIRCLE_DOWN_ROUNDED,
+                    expand=True,
+                    on_click = save_db
+                ),
+            ],
+            alignment=ft.MainAxisAlignment.CENTER,
+        ),
+        ft.Row(
+            controls=[
+                ft.OutlinedButton(
+                    text = "清除全表格(A)",
+                    height = 30,
+                    style=ft.ButtonStyle(
+                        color={
+                            ft.MaterialState.DEFAULT: ft.colors.RED,
+                        },
+                    ),
+                    icon=ft.icons.DELETE_FOREVER_OUTLINED,  
+                    icon_color='red', 
+                    expand=True,
+                    on_click = AllForm.data_clear
+                ),
+                ft.OutlinedButton(
+                    text = "讀取資料庫(S)",
+                    height = 30,
+                    icon=ft.icons.ARROW_CIRCLE_UP_ROUNDED,
+                    expand=True,
+                    on_click = load_db_one
+                ),
+            ],
+            alignment=ft.MainAxisAlignment.CENTER,
+        )
+    ])
+
     #################################################### Final
     page.add(
          patient_column,
          tabview,
          submit,
     )
+    setting_show_all()
     #################################################### Other functions
-    get_patient_data(patient_hisno, patient_name) # 這些函數似乎會被開一個thread執行，所以不會阻塞
+    patient_data_autoset(patient_hisno, patient_name) # 這些函數似乎會被開一個thread執行，所以不會阻塞
 
 ft.app(target=main)

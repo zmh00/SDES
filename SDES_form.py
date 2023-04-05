@@ -10,7 +10,7 @@ from psycopg2.extras import RealDictCursor
 import logging
 
 # CONST and ATTRIBUTES
-TEST_MODE = True
+TEST_MODE = False
 DATE_MODE = 1
 HOST = 'localhost'
 PORT = '5432'
@@ -26,13 +26,24 @@ COLUMN_DOC = 'doctor_id'
 COLUMN_TIME_CREATED = 'created_at'
 COLUMN_TIME_UPDATED = 'updated_at'
 
-# logging settings
-logging.basicConfig(
-  level=logging.INFO,
-  filename='SDES_log.txt',
-  format='[%(asctime)s %(levelname)-8s] %(message)s',
-  datefmt='%Y-%m-%d %H:%M:%S',
-)
+#客製化基本設定: 檔案+console
+logger = logging.getLogger("SDES_form")
+logger.setLevel(logging.DEBUG) #這是logger的level
+BASIC_FORMAT = '[%(asctime)s %(levelname)-8s] %(message)s'
+DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
+formatter = logging.Formatter(BASIC_FORMAT, datefmt=DATE_FORMAT)
+##設定console handler的設定
+ch = logging.StreamHandler()
+ch.setLevel(logging.DEBUG) ##可以獨立設定console handler的level，如果不設就會預設使用logger的level
+ch.setFormatter(formatter)
+##設定file handler的設定
+log_filename = "SDES_log.txt"
+fh = logging.FileHandler(log_filename) #預設mode='a'，持續寫入
+fh.setLevel(logging.DEBUG)
+fh.setFormatter(formatter)
+##將handler裝上
+logger.addHandler(ch)
+logger.addHandler(fh)
 
 def format_today(mode):
     if mode == 1: # 西元紀年
@@ -64,7 +75,7 @@ class Measurement(ft.UserControl):
     def data_set_value(self, values_dict):
         for item in self.item_list:
             key = f"{self.label}_{item}".replace(' ','_')
-            self.body[item].value = values_dict[key] # TODO 這個適用BOOL TYPE的checkbox嗎? => 需要測試這樣傳回來的資料型態
+            self.body[item].value = values_dict[key]
         self.update()
     
     def data_clear(self, e=None): # 清除
@@ -225,7 +236,7 @@ class Measurement_Check(Measurement):
     def build(self):
         # self.head = ft.Text(self.label, text_align='center', style=ft.TextThemeStyle.TITLE_LARGE, weight=ft.FontWeight.W_400, color=ft.colors.BLACK)
         for i, item_name in enumerate(self.item_list):
-            self.body[item_name] = ft.Checkbox(label=item_name, value=False, width=self.checkbox_width[i])
+            self.body[item_name] = ft.Checkbox(label=item_name, value=False, width=self.checkbox_width[i], height=25) # height = 25 讓呈現更緊
         
         self.row = ft.Row(
             controls=[],
@@ -245,7 +256,7 @@ class Measurement_Check(Measurement):
 
         # 決定輸出緊密程度
         if self.compact:
-            return ft.Row(controls=[self.head, self.row], wrap=True)
+            return ft.Row(controls=[self.head, self.row], wrap=True, vertical_alignment=ft.CrossAxisAlignment.CENTER)
         else:
             return ft.Column(controls=[self.head, self.row]) # 讓head換行後接著checkboxes
     
@@ -289,20 +300,38 @@ class Form(ft.Tab): #目的是擴增Tab的功能
         super().__init__()
         self.label = label # 資料儲存
         self.measurement_list = measurement_list # 資料儲存
-        # self.measurements = dict() # 先留著備案，耗記憶體但快速
-        # for m in measurement_list:
-        #     self.measurements[m.label] = m
         
-        self.text = self.label # 呈現用途
-        self.content = ft.Container( # 呈現用途
-            content=ft.Column(
-                controls=self.measurement_list,
-                scroll="adaptive",
-            ),
+        self.display = ft.Container(
+            content= ft.Text(value='已擷取......資料', color=ft.colors.WHITE, weight=ft.FontWeight.BOLD, visible=False),
             alignment=ft.alignment.center,
-            padding=ft.padding.only(top = 15, bottom=15),
+            bgcolor = ft.colors.BLUE,
+            margin= ft.margin.only(top=5, bottom=0),
+            visible= True,
         )
-    
+        self.text = self.label # 呈現用途
+        self.content = ft.Column(
+            controls=[
+                self.display, 
+                ft.Container( # 呈現用途
+                    content=ft.Column(
+                        controls=self.measurement_list,
+                        scroll="adaptive",
+                    ),
+                    # alignment=ft.alignment.center,
+                    expand=True,
+                    padding=ft.padding.only(top=0, bottom=15),
+                )
+            ]
+        )
+        
+    def set_display(self, text=None):
+        if text == None: # 若沒有顯示文字就隱藏display
+            self.display.content.visible = False
+        else:
+            self.display.content.value = text
+            self.display.content.visible = True
+        self.display.update()
+
     def set_doctor_id(self, doctor_id, *args):
         self.doctor_id = doctor_id
 
@@ -340,6 +369,7 @@ class Form(ft.Tab): #目的是擴增Tab的功能
     def data_clear(self, e=None):
         for measurement in self.measurement_list:
             measurement.data_clear()
+        self.set_display() # 清除display
     
     def data_return_default(self, e=None):
         for measurement in self.measurement_list:
@@ -383,11 +413,11 @@ class Form(ft.Tab): #目的是擴增Tab的功能
             exists = cursor.fetchone()['exists']
         except Exception as error:
             db_conn.rollback()
-            logging.error(f"Table[{self.label}] Error in detect table existence: {error}")
+            logger.error(f"Table[{self.label}] Error in detect table existence: {error}")
             return False
 
         if exists == False: #Table不存在
-            logging.info(f"Table[{self.label}] not exists! Building...")
+            logger.info(f"Table[{self.label}] not exists! Building...")
             # 組合需要的欄位
             other_columns = ''
             for measurement in self.measurement_list:
@@ -403,20 +433,19 @@ class Form(ft.Tab): #目的是擴增Tab的功能
                 "{COLUMN_TIME_CREATED}" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                 "{COLUMN_TIME_UPDATED}" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                 "{COLUMN_DOC}" varchar(8),
-                "{COLUMN_PATIENT_HISNO}" varchar(12) NOT NULL,
-                "{COLUMN_PATIENT_NAME}" varchar(12),
+                "{COLUMN_PATIENT_HISNO}" varchar(15) NOT NULL,
+                "{COLUMN_PATIENT_NAME}" varchar(20),
                 {other_columns.rstrip(',')})'''
             try:
                 cursor.execute(query)
                 db_conn.commit()
             except Exception as error:
-                print(f"Table[{self.label}] Error in transaction(CREATE TABLE) and rollback: {error}")
+                logger.error(f"Table[{self.label}] Error in transaction(CREATE TABLE) and rollback: {error}")
                 db_conn.rollback()
-                logging.error(f"Table[{self.label}] Error in transaction(CREATE TABLE) and rollback: {error}")
                 return False
         
         else: #Table已存在
-            logging.info(f"Table[{self.label}] exists!")
+            logger.info(f"Table[{self.label}] exists!")
             # 只需要取得一筆就能透過cursor.description取得column names
             query = f''' SELECT * FROM "{self.label}" LIMIT 1 ''' 
             cursor.execute(query)
@@ -428,9 +457,9 @@ class Form(ft.Tab): #目的是擴增Tab的功能
             new_column_names = set(self.db_column_names)
             diff = new_column_names - old_column_names
             if len(diff) ==0:
-                logging.info(f"Table[{self.label}] NO NEED FOR ADDING COLUMN!")
+                logger.info(f"Table[{self.label}] NO NEED FOR ADDING COLUMN!")
             else:
-                logging.info(f"Table[{self.label}] ADDING COLUMN[{len(diff)}]:{diff}")
+                logger.info(f"Table[{self.label}] ADDING COLUMN[{len(diff)}]:{diff}")
                 # 將集合差值的column names搭配data type形成query => "{column_name}"使用雙引號: case-sensitive 
                 add_columns = ''
                 for measurement in self.measurement_list:
@@ -446,14 +475,14 @@ class Form(ft.Tab): #目的是擴增Tab的功能
                     cursor.execute(query)
                     db_conn.commit()
                 except Exception as error:
-                    print(f"Table[{self.label}] Error in transaction(ALTER TABLE) and rollback: {error}")
+                    logger.error(f"Table[{self.label}] Error in transaction(ALTER TABLE) and rollback: {error}")
                     db_conn.rollback()
-                    logging.error(f"Table[{self.label}] Error in transaction(ALTER TABLE) and rollback: {error}")
                     return False
         return True
         
 
-    def db_save(self, patient_hisno, patient_name, *args):
+    def db_save(self, patient_hisno, *args, **kwargs):
+        patient_name = kwargs.get('patient_name', None)
         values_dict = self.db_values_dict
 
         # 如果沒有資料輸入(空白text or unchecked checkbox)就不送資料庫
@@ -475,7 +504,7 @@ class Form(ft.Tab): #目的是擴增Tab的功能
             }
         )
 
-        # 建立query # TODO測試大小寫和引號
+        # 建立query
         query = SQL("insert into {table} ({fields}) values ({values})").format(
             table = Identifier(self.label),
             fields = SQL(', ').join(map(Identifier, column_names)),
@@ -484,90 +513,37 @@ class Form(ft.Tab): #目的是擴增Tab的功能
 
         try:
             cursor.execute(query, values_dict) #因為前面定義過有標籤的placeholder，可以傳入dictionary
-            if TEST_MODE:
-                print(cursor.query) ############# TODO 可以印出剛剛實際送出的query
             db_conn.commit()
-            print('Table[{self.label}] Records saved successfully!')
+            logger.info(f'Table[{self.label}] Saving query finished')
             return True
         except Exception as e:
-            print(f"Table[{self.label}] Encounter exception: {e}")
+            logger.error(f"Table[{self.label}] Encounter exception: {e}")
             db_conn.rollback()
             return False
 
     
-    def db_load(self, patient_hisno, *args):
+    def db_load(self, patient_hisno, *args, **kwargs):
         # 抓取符合醫師+病人的最新一筆資料
         query = SQL("SELECT * FROM {table} WHERE {doc}={doctor_id} AND {hisno}={patient_hisno} ORDER BY id DESC NULLS LAST LIMIT 1").format(
             table = Identifier(self.label),
             doc = Identifier(COLUMN_DOC),
-            doctor_id = Identifier(self.doctor_id),
+            doctor_id = Literal(self.doctor_id),
             hisno = Identifier(COLUMN_PATIENT_HISNO),
-            patient_hisno = Identifier(patient_hisno),
+            patient_hisno = Literal(patient_hisno),
         )
 
         try:
             cursor.execute(query)
-            if TEST_MODE:
-                print(cursor.query) ############# TODO 可以印出剛剛實際送出的query
             row = cursor.fetchone()
-            print('Table[{self.label}] Records loaded successfully!')
+            logger.info(f'Table[{self.label}]|Patient[{patient_hisno}] Loading query finished')
             if row is None: # 沒有資料就回傳None
                 return None
-            if TEST_MODE:
-                print(f"LOAD ROW(dict):{dict(row)}") ################## TODO 測試用: 可以轉成dictionary嗎
-            self.data_set_value(dict(row)) 
+            self.data_set_value(dict(row)) # 設定measurement資料
+            self.set_display(text=f"已擷取資料日期:{row[COLUMN_TIME_UPDATED].strftime('%Y-%m-%d %H:%M')}") # 顯示display:資料擷取日期
             return True
         except Exception as e:
-            print(f"Table[{self.label}] Encounter exception: {e}")
+            logger.error(f"Table[{self.label}] Encounter exception: {e}")
             return False
-
-    
-    # # TODO deprecated if safe was tested
-    # def db_save(self, doctor_id, patient_hisno, patient_name, *args):
-    #     column_names = self.db_column_names
-    #     values_dict = self.db_values_dict
-    #     if len(column_names) != len(values_dict):
-    #         raise Exception("Different length of column_names and values_dict")
-        
-    #     sql_columns = f'{COLUMN_DOC},{COLUMN_PATIENT_HISNO},{COLUMN_PATIENT_NAME},'
-    #     sql_values = f'{doctor_id},{patient_hisno},{patient_name},'
-    #     for key in column_names:
-    #         sql_columns = sql_columns + f"{key},"
-    #         sql_values = sql_values + f"'{values_dict[key]}',"
-    #     try:
-    #         cursor.execute(
-    #             f"""
-    #             INSERT INTO {self.label} ({sql_columns.rstrip(',')}) VALUES ({sql_values.rstrip(',')});
-    #             """
-    #         )
-    #         db_conn.commit()
-    #         print('Records saved successfully!')
-    #     except Exception as e:
-    #         print(f"Encounter exception: {e}")
-    #         db_conn.rollback()
-
-    # # TODO deprecated if safe was tested
-    # def db_load(self, doctor_id, patient_hisno, *args) -> dict :
-    #     values_dict = {}
-    #     sql_columns = ''
-    #     column_names = self.db_column_names
-    #     for key in column_names:
-    #         sql_columns = sql_columns + f"{key},"
-    #     try:
-    #         cursor.execute(
-    #             f"""
-    #             SELECT ({sql_columns.rstrip(',')}) FROM {self.label} WHERE {COLUMN_DOC}='{doctor_id}' AND {COLUMN_PATIENT_HISNO}='{patient_hisno}' ORDER BY {COLUMN_TIME_CREATED} DESC NULLS LAST;
-    #             """
-    #         )
-    #         row = cursor.fetchone()
-    #         print('Records loaded successfully!')
-    #         if row is None:
-    #             return None
-    #         for index, value in enumerate(row):
-    #             values_dict[column_names[index]] = value
-    #         self.data_set_value(values_dict)
-    #     except Exception as e:
-    #         print(f"Encounter exception: {e}")
 
 
 class Forms(): #集合Form(Tab)，包裝存、取、清除功能
@@ -589,7 +565,6 @@ class Forms(): #集合Form(Tab)，包裝存、取、清除功能
         for form in self.form_list:
             form.set_doctor_id(doctor_id=doctor_id)
 
-
     def set_patient_data(self, patient_hisno, patient_name, *args):
         self.patient_hisno = patient_hisno
         self.patient_name = patient_name
@@ -600,34 +575,47 @@ class Forms(): #集合Form(Tab)，包裝存、取、清除功能
     def data_format(self, e=None):
         pass
 
-    def data_clear(self):
+    def data_clear(self, e=None): # 全部forms 清除
         for form in self.form_list:
             form.data_clear()
 
-    def db_migrate(self):
+    def db_migrate(self): # 全部forms migrate
         for form in self.form_list:
             form.db_migrate()
     
-    # 按下存檔按鈕時會抓取病人資料
-    def db_save(self, patient_hisno, patient_name, *args):
-        for form in self.form_list:
-            res = form.db_save(patient_hisno, patient_name, args)
-            if res == None:
-                logging.info(f"{form.label}||{self.doctor_id}||{patient_hisno}||Skip writing to database")
-            elif res == False:
-                logging.error(f"{form.label}||{self.doctor_id}||{patient_hisno}||Fail writing to database")
-            else:
-                logging.info(f"{form.label}||{self.doctor_id}||{patient_hisno}||Finish writing to database")
 
-    def db_load(self, patient_hisno, *args):
+    # 按下存檔按鈕時會抓取病人資料
+    def db_save(self, patient_hisno, *args, **kwargs): # 全部forms 儲存
         for form in self.form_list:
-            res = form.db_load(patient_hisno, args)
+            res = form.db_save(patient_hisno, *args, **kwargs)
             if res == None:
-                logging.info(f"{form.label}||{self.doctor_id}||{patient_hisno}||Empty record")
+                form.data_clear()
+                logger.info(f"{form.label}||{self.doctor_id}||{patient_hisno}||Skip writing to database")
             elif res == False:
-                logging.error(f"{form.label}||{self.doctor_id}||{patient_hisno}||Fail reading from database")
+                logger.error(f"{form.label}||{self.doctor_id}||{patient_hisno}||Fail writing to database")
             else:
-                logging.info(f"{form.label}||{self.doctor_id}||{patient_hisno}||Finish reading from database")
+                logger.info(f"{form.label}||{self.doctor_id}||{patient_hisno}||Finish writing to database")
+
+
+    def db_load_one(self, patient_hisno, tab_index, *args, **kwargs): # 讀取特定form
+        res = self.form_list[tab_index].db_load(patient_hisno, *args, **kwargs)
+        if res == None:
+            logger.info(f"{self.form_list[tab_index].label}||{self.doctor_id}||{patient_hisno}||Empty record")
+        elif res == False:
+            logger.error(f"{self.form_list[tab_index].label}||{self.doctor_id}||{patient_hisno}||Fail reading from database")
+        else:
+            logger.info(f"{self.form_list[tab_index].label}||{self.doctor_id}||{patient_hisno}||Finish reading from database")
+
+
+    def db_load_all(self, patient_hisno, *args, **kwargs): # 全部forms 讀取 => 暫時不用
+        for form in self.form_list:
+            res = form.db_load(patient_hisno, *args, **kwargs)
+            if res == None:
+                logger.info(f"{form.label}||{self.doctor_id}||{patient_hisno}||Empty record")
+            elif res == False:
+                logger.error(f"{form.label}||{self.doctor_id}||{patient_hisno}||Fail reading from database")
+            else:
+                logger.info(f"{form.label}||{self.doctor_id}||{patient_hisno}||Finish reading from database")
 
 ########################## Basic
 # 客製化IOP按鈕
@@ -707,7 +695,7 @@ form_ivi = Form(
     label="IVI",
     measurement_list=[
         Measurement_Text('VA'),
-        iop,
+        # iop, # TODO 測試用
         Measurement_Text('Lens'),
         Measurement_Text('CMT'),
         Measurement_Check('IRF', ['OD','OS'], [70,70], compact=True),
@@ -719,6 +707,16 @@ form_ivi = Form(
         Measurement_Text('Fundus', multiline=True),
     ]
 )
+########################## SETTING # TODO 需要重構
+# setting_list=[
+#     Measurement_Text('Doctor_ID', ['']),
+#     Measurement_Text('DATE_MODE', [''], default={'':'1'}),
+#     Measurement_Text('HOST', [''], default={'':'localhost'}),
+#     Measurement_Text('PORT', [''], default={'':'5432'}),
+#     Measurement_Text('DBNAME', [''], default={'':'vgh_oph'}),
+#     Measurement_Text('USER', [''], default={'':'postgres'}),
+#     Measurement_Text('PASSWORD', [''], default={'':'12090216'}),
+# ]
 
 ########################## TEST
 form_test = Form(
@@ -734,16 +732,20 @@ form_test = Form(
 if TEST_MODE:
     _form_list = [form_test]
 else:
-    _form_list = [form_basic, form_plasty, form_dryeye, form_ivi] # 註冊使用的form
+    _form_list = [form_dryeye, form_ivi, form_plasty] # 註冊使用的form
 
 forms = Forms(_form_list)
 
 try:
     db_conn = psycopg2.connect(host=HOST, dbname=DBNAME, user=USER, password=PASSWORD, port = PORT)
     cursor = db_conn.cursor(cursor_factory = RealDictCursor)
-    print(f"Connect [{DBNAME}] database successfully!")
+    logger.info(f"Connect [{DBNAME}] database successfully!")
 except Exception as e:
-    print(f"Encounter exception: {e}")
+    logger.error(f"Encounter exception: {e}")
+
+
+if __name__ == '__main__': # load這個library來建立DB
+    forms.db_migrate()
 
 # finally:
 #     # 斷開資料庫的連線
