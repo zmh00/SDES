@@ -12,11 +12,13 @@ import logging
 # CONST and ATTRIBUTES
 TEST_MODE = False
 DATE_MODE = 1
-HOST = 'localhost'
-PORT = '5432'
+HOST = '10.53.70.143'
+if TEST_MODE:
+    HOST = 'localhost'
+PORT = '5431'
 DBNAME = 'vgh_oph'
 USER = 'postgres'
-PASSWORD ='12090216'
+PASSWORD ='qazxcdews'
 # DOCTOR_ID
 
 # COLUMN NAMES
@@ -45,6 +47,21 @@ fh.setFormatter(formatter)
 logger.addHandler(ch)
 logger.addHandler(fh)
 
+def db_close(): # 如果不釋出不知道會造成甚麼效應?
+    cursor.close()
+    db_conn.close()
+
+def db_connect():
+    global db_conn
+    global cursor
+    try:
+        db_conn = psycopg2.connect(host=HOST, dbname=DBNAME, user=USER, password=PASSWORD, port = PORT)
+        cursor = db_conn.cursor(cursor_factory = RealDictCursor)
+        logger.info(f"Connect [{DBNAME}] database successfully!")
+    except Exception as e:
+        logger.error(f"Encounter exception: {e}")
+
+
 def format_today(mode):
     if mode == 1: # 西元紀年
         today = datetime.datetime.today().strftime("%Y%m%d")
@@ -55,14 +72,14 @@ def format_today(mode):
     return today
 
 class Measurement(ft.UserControl):
-    def __init__(self, label: str, control_type: ft.Control, item_list: list): # 接受參數用
+    def __init__(self, label: str, control_type: ft.Control, item_list: list[str]): # 接受參數用
         super().__init__()
         self.label = label # 辨識必須: 後續加入form內的measurement都需要label
         self.control_type = control_type # 未使用考慮可以移除
         self.head = ft.Text(self.label, text_align='center', style=ft.TextThemeStyle.TITLE_LARGE, weight=ft.FontWeight.W_400, color=ft.colors.BLACK) 
         self.body = {} # 不同型態measurement客製化
         if type(item_list) is not list: # 輸入一個item轉換成list型態
-            self.item_list = [item_list]
+            self.item_list = [str(item_list)]
         else:
             self.item_list = item_list
 
@@ -74,7 +91,10 @@ class Measurement(ft.UserControl):
 
     def data_set_value(self, values_dict):
         for item in self.item_list:
-            key = f"{self.label}_{item}".replace(' ','_')
+            if str(item).strip() == '': # 如果item是空字串
+                key = f"{self.label}".replace(' ','_')
+            else:
+                key = f"{self.label}_{item}".replace(' ','_')  # 把空格處理掉 => 減少後續辨識錯誤
             self.body[item].value = values_dict[key]
         self.update()
     
@@ -91,7 +111,10 @@ class Measurement(ft.UserControl):
     def db_column_names(self):
         column_names = []
         for item in self.item_list:
-            key = f"{self.label}_{item}".replace(' ','_') # 把空格處理掉 => 減少後續辨識錯誤
+            if str(item).strip() == '': # 如果item是空字串
+                key = f"{self.label}".replace(' ','_')
+            else:
+                key = f"{self.label}_{item}".replace(' ','_')  # 把空格處理掉 => 減少後續辨識錯誤
             column_names.append(key)
         return column_names
 
@@ -192,7 +215,7 @@ class Measurement_Text(Measurement):
                 self.body[keys].value = self.default[keys]
             self.update() # 因為有update，只能在元件已經建立加入page後使用
         
-
+    # FIXME
     def data_format(self, e=None):
         if self.format_func == None:
             format_text = ''
@@ -339,10 +362,6 @@ class Form(ft.Tab): #目的是擴增Tab的功能
         self.patient_hisno = patient_hisno
         self.patient_name = patient_name
 
-    # def input_doctor_patient_data(self, doctor_id, patient_hisno, patient_name):
-    #     self.doctor_id = doctor_id
-    #     self.patient_hisno = patient_hisno
-    #     self.patient_name = patient_name
 
     @property
     def measurements(self, item_name: str):
@@ -417,7 +436,7 @@ class Form(ft.Tab): #目的是擴增Tab的功能
             return False
 
         if exists == False: #Table不存在
-            logger.info(f"Table[{self.label}] not exists! Building...")
+            logger.info(f"Table[{self.label}] NOT exists! Building...")
             # 組合需要的欄位
             other_columns = ''
             for measurement in self.measurement_list:
@@ -445,7 +464,7 @@ class Form(ft.Tab): #目的是擴增Tab的功能
                 return False
         
         else: #Table已存在
-            logger.info(f"Table[{self.label}] exists!")
+            logger.info(f"Table[{self.label}] Exists!")
             # 只需要取得一筆就能透過cursor.description取得column names
             query = f''' SELECT * FROM "{self.label}" LIMIT 1 ''' 
             cursor.execute(query)
@@ -679,8 +698,8 @@ form_dryeye = Form(
     measurement_list=[
         Measurement_Check('Symptom', ['photophobia','pain'], [130,70], compact=True),
         Measurement_Check('History', ['Smoking','Hyperlipidemia'], [100,130], compact=True),
-        Measurement_Text('OSDI', '_'),
-        Measurement_Text('SPEED', '_'),
+        Measurement_Text('OSDI',''),
+        Measurement_Text('SPEED',''),
         Measurement_Text('Shirmer'),
         Measurement_Text('TBUT'),
         Measurement_Text('NEI'),
@@ -729,22 +748,13 @@ form_test = Form(
     ]
 )
 ########################## MERGE
-if TEST_MODE:
-    _form_list = [form_test]
-else:
-    _form_list = [form_dryeye, form_ivi, form_plasty] # 註冊使用的form
+db_conn = None
+cursor = None
 
-forms = Forms(_form_list)
-
-try:
-    db_conn = psycopg2.connect(host=HOST, dbname=DBNAME, user=USER, password=PASSWORD, port = PORT)
-    cursor = db_conn.cursor(cursor_factory = RealDictCursor)
-    logger.info(f"Connect [{DBNAME}] database successfully!")
-except Exception as e:
-    logger.error(f"Encounter exception: {e}")
-
+forms = Forms([form_dryeye, form_ivi, form_plasty]) # 註冊使用的form
 
 if __name__ == '__main__': # load這個library來建立DB
+    db_connect()
     forms.db_migrate()
 
 # finally:

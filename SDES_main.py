@@ -146,9 +146,17 @@ def set_text(panel, text_input, location=0, replace=0) -> str:
                 return "No edit control"
 
 
+        
 
 def main(page: Page):
     #################################################### functions
+    def test_db():
+        SDES_form.db_conn()
+        if SDES_form.db_conn == None:
+            notify("資料庫連線失敗")
+        else:
+            notify("資料庫連線成功")
+
     def setWindowLeftMiddle():
         import ctypes
         user32 = ctypes.windll.user32
@@ -179,6 +187,7 @@ def main(page: Page):
         page.update()
         time.sleep(0.7)
 
+
     # TODO 需要重構
     doctor_id = ft.TextField(label="Doctor ID", hint_text="Please enter short code of doctor ID(EX:4123)", dense=True, height=45)
     date_mode = ft.Dropdown(
@@ -189,13 +198,19 @@ def main(page: Page):
         ],
         dense=True, height=45, content_padding = 10, value=1
     )
-    host = ft.TextField(label="HOST IP", value='localhost', dense=True, height=45)
-    port = ft.TextField(label="PORT", value='5432', dense=True, height=45)
-    dbname = ft.TextField(label="DB NAME", value='vgh_oph', dense=True, height=45)
-    user = ft.TextField(label="USER NAME", value='postgres', dense=True, height=45)
-    psw = ft.TextField(label="PASSWORD", password=True, dense=True, height=45)
+    host = ft.TextField(label="HOST IP", value=SDES_form.HOST, dense=True, height=45)
+    port = ft.TextField(label="PORT", value=SDES_form.PORT, dense=True, height=45)
+    dbname = ft.TextField(label="DB NAME", value=SDES_form.DBNAME, dense=True, height=45)
+    user = ft.TextField(label="USER NAME", value=SDES_form.USER, dense=True, height=45)
+    psw = ft.TextField(label="PASSWORD", value=SDES_form.PASSWORD ,password=True, dense=True, height=45)
 
-    def setting_set(e=None):
+    def setting_set_doctorid(e=None):
+        AllForm.set_doctor_id(doctor_id.value)
+        custom_title.value = f"病歷結構化輸入系統 [DOC:{doctor_id.value}]"
+        view_pop()
+        test_db()
+
+    def setting_set_all(e=None):
         AllForm.set_doctor_id(doctor_id.value)
         custom_title.value = f"病歷結構化輸入系統 [DOC:{doctor_id.value}]"
         SDES_form.DATE_MODE = date_mode.value
@@ -205,6 +220,7 @@ def main(page: Page):
         SDES_form.USER = user.value
         SDES_form.PASSWORD = psw.value
         view_pop()
+        test_db()
 
     def setting_show_all(e=None):
         view_setting = ft.View(
@@ -221,17 +237,12 @@ def main(page: Page):
             controls=[
                 ft.Column(
                     controls=[
-                        doctor_id, 
-                        date_mode, 
-                        host, 
-                        port, 
-                        dbname, 
-                        user, 
-                        psw,
+                        doctor_id, date_mode, host, port, dbname, user, psw,
                         ft.Row(
-                            controls=[ft.ElevatedButton("設定", on_click=setting_set, expand=True)]
+                            controls=[ft.ElevatedButton("設定", on_click=setting_set_all, expand=True)]
                         ),
-                    ]
+                    ], 
+                    alignment=ft.MainAxisAlignment.CENTER
                 ),
             ],
         )
@@ -240,8 +251,34 @@ def main(page: Page):
         page.update()
     
 
-    def setting_show_doctorid(e):
-        pass
+    def setting_show_doctorid(e=None):
+        view_setting_doctorid = ft.View(
+            route = "/setting",
+            appbar=ft.AppBar( 
+                title=ft.Row([
+                        ft.WindowDragArea(ft.Container(ft.Text("系統設定", size=15, weight=ft.FontWeight.BOLD), alignment=ft.alignment.center_left, padding=ft.padding.only(bottom=3)), expand=True),
+                        ft.IconButton(ft.icons.CLOSE, on_click=lambda _: page.window_close(), icon_size = 25, tooltip = 'Close')
+                    ]),
+                center_title=False,
+                bgcolor=ft.colors.SURFACE_VARIANT,
+                # toolbar_height=30  # 目前無法改變回上一頁按鍵大小
+            ),
+            controls=[
+                ft.Column(
+                    controls=[
+                        doctor_id,
+                        ft.Row(
+                            controls=[ft.ElevatedButton("設定", on_click=setting_set_doctorid, expand=True)]
+                        ),
+                    ], 
+                    alignment=ft.MainAxisAlignment.CENTER,
+                    expand=True
+                ),
+            ],
+        )
+
+        page.views.append(view_setting_doctorid)
+        page.update()
     
 
     def on_keyboard(e: ft.KeyboardEvent): # 支援組合鍵快捷
@@ -483,8 +520,8 @@ def main(page: Page):
          tabview,
          submit,
     )
-    setting_show_all()
+    setting_show_doctorid()
     #################################################### Other functions
     patient_data_autoset(patient_hisno, patient_name) # 這些函數似乎會被開一個thread執行，所以不會阻塞
-
+    
 ft.app(target=main)
