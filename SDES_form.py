@@ -7,7 +7,7 @@ from psycopg2.extras import RealDictCursor
 import logging
 
 # CONST and ATTRIBUTES
-TEST_MODE = True
+TEST_MODE = False
 DATE_MODE = 1
 HOST = '10.53.70.143'
 if TEST_MODE:
