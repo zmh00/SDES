@@ -759,7 +759,7 @@ form_ivi = Form(
     label="IVI",
     measurement_list=[
         Measurement_Text('VA'),
-        # iop, # TODO 測試用
+        iop, # TODO 測試用
         Measurement_Text('Lens'),
         Measurement_Text('CMT'),
         Measurement_Check('IRF', ['OD','OS'], [70,70], compact=True),
@@ -786,7 +786,7 @@ form_test = Form(
 db_conn = None
 cursor = None
 
-forms = Forms([form_dryeye, form_ivi, form_plasty]) # 註冊使用的form
+forms = Forms([form_dryeye, form_ivi, form_plasty, form_basic]) # 註冊使用的form
 
 if __name__ == '__main__': # load這個library來建立DB
     db_connect()
