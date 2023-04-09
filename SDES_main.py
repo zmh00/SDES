@@ -1,11 +1,9 @@
 import flet as ft
 from flet import Page
 import datetime
-# import bot_gui
 import time
 import subprocess
 import uiautomation as auto
-from typing import Union
 # forms listed in SDES_form
 import SDES_form
 
@@ -151,7 +149,7 @@ def set_text(panel, text_input, location=0, replace=0) -> str:
 def main(page: Page):
     #################################################### functions
     def test_db():
-        SDES_form.db_conn()
+        SDES_form.db_connect()
         if SDES_form.db_conn == None:
             notify("資料庫連線失敗")
         else:
@@ -185,11 +183,24 @@ def main(page: Page):
         page.snack_bar.content = ft.Text(text)
         page.snack_bar.open = True
         page.update()
-        time.sleep(0.7)
+        time.sleep(0.1)
+
+
+    def setting_set_all(e=None):
+        AllForm.set_doctor_id(doctor_id.value)
+        custom_title.value = f"病歷結構化輸入系統 [DOC:{doctor_id.value}]"
+        SDES_form.DATE_MODE = date_mode.value
+        SDES_form.HOST = host.value
+        SDES_form.PORT = port.value
+        SDES_form.DBNAME = dbname.value
+        SDES_form.USER = user.value
+        SDES_form.PASSWORD = psw.value
+        view_pop()
+        test_db()
 
 
     # TODO 需要重構
-    doctor_id = ft.TextField(label="Doctor ID", hint_text="Please enter short code of doctor ID(EX:4123)", dense=True, height=45)
+    doctor_id = ft.TextField(label="Doctor ID", hint_text="Please enter short code of doctor ID(EX:4123)", dense=True, height=45, on_submit=setting_set_all)
     date_mode = ft.Dropdown(
         options=[
             ft.dropdown.Option(key=1, text='西元紀年'),
@@ -210,47 +221,7 @@ def main(page: Page):
         view_pop()
         test_db()
 
-    def setting_set_all(e=None):
-        AllForm.set_doctor_id(doctor_id.value)
-        custom_title.value = f"病歷結構化輸入系統 [DOC:{doctor_id.value}]"
-        SDES_form.DATE_MODE = date_mode.value
-        SDES_form.HOST = host.value
-        SDES_form.PORT = port.value
-        SDES_form.DBNAME = dbname.value
-        SDES_form.USER = user.value
-        SDES_form.PASSWORD = psw.value
-        view_pop()
-        test_db()
-
-    def setting_show_all(e=None):
-        view_setting = ft.View(
-            route = "/setting",
-            appbar=ft.AppBar( 
-                title=ft.Row([
-                        ft.WindowDragArea(ft.Container(ft.Text("系統設定", size=15, weight=ft.FontWeight.BOLD), alignment=ft.alignment.center_left, padding=ft.padding.only(bottom=3)), expand=True),
-                        ft.IconButton(ft.icons.CLOSE, on_click=lambda _: page.window_close(), icon_size = 25, tooltip = 'Close')
-                    ]),
-                center_title=False,
-                bgcolor=ft.colors.SURFACE_VARIANT,
-                # toolbar_height=30  # 目前無法改變回上一頁按鍵大小
-            ),
-            controls=[
-                ft.Column(
-                    controls=[
-                        doctor_id, date_mode, host, port, dbname, user, psw,
-                        ft.Row(
-                            controls=[ft.ElevatedButton("設定", on_click=setting_set_all, expand=True)]
-                        ),
-                    ], 
-                    alignment=ft.MainAxisAlignment.CENTER
-                ),
-            ],
-        )
-
-        page.views.append(view_setting)
-        page.update()
     
-
     def setting_show_doctorid(e=None):
         view_setting_doctorid = ft.View(
             route = "/setting",
@@ -278,6 +249,35 @@ def main(page: Page):
         )
 
         page.views.append(view_setting_doctorid)
+        page.update()
+
+
+    def setting_show_all(e=None):
+        view_setting = ft.View(
+            route = "/setting",
+            appbar=ft.AppBar( 
+                title=ft.Row([
+                        ft.WindowDragArea(ft.Container(ft.Text("系統設定", size=15, weight=ft.FontWeight.BOLD), alignment=ft.alignment.center_left, padding=ft.padding.only(bottom=3)), expand=True),
+                        ft.IconButton(ft.icons.CLOSE, on_click=lambda _: page.window_close(), icon_size = 25, tooltip = 'Close')
+                    ]),
+                center_title=False,
+                bgcolor=ft.colors.SURFACE_VARIANT,
+                # toolbar_height=30  # 目前無法改變回上一頁按鍵大小
+            ),
+            controls=[
+                ft.Column(
+                    controls=[
+                        doctor_id, date_mode, host, port, dbname, user, psw,
+                        ft.Row(
+                            controls=[ft.ElevatedButton("設定", on_click=setting_set_all, expand=True)]
+                        ),
+                    ], 
+                    alignment=ft.MainAxisAlignment.CENTER
+                ),
+            ],
+        )
+
+        page.views.append(view_setting)
         page.update()
     
 
@@ -331,7 +331,7 @@ def main(page: Page):
     # page.window_title_bar_hidden = True
     page.scroll = ft.ScrollMode.AUTO
     page.on_keyboard_event = on_keyboard    
-    # page.theme_mode = 'dark'
+    page.theme_mode = 'LIGHT'
     
     # Appbar => 頂部工作列
     page.window_title_bar_hidden = True
@@ -458,13 +458,29 @@ def main(page: Page):
     def save_db(e):
         patient = patient_data_check()
         if patient != False:
-            AllForm.db_save(**patient) # 傳入{'patient_hisno':..., 'patient_name':...,}
-            notify("完成資料儲存")
+            try:
+                AllForm.db_save(**patient) # 傳入{'patient_hisno':..., 'patient_name':...,}
+                notify("完成資料寫入資料庫")
+            except Exception as e:
+                notify("資料寫入資料庫失敗")
+
 
     def save_opd_db(e):
         patient = patient_data_check()
         if patient != False:
-            pass
+            try:
+                AllForm.db_save(**patient) # 傳入{'patient_hisno':..., 'patient_name':...,}
+                notify("完成資料寫入資料庫")
+            except Exception as e:
+                notify("資料寫入資料庫失敗")
+
+            text = AllForm.data_opdformat()
+            try:
+                set_O(text)
+                notify("完成資料寫入門診系統")
+            except Exception as e:
+                notify("資料寫入門診系統失敗")
+
 
     ########################## submit
     submit = ft.Column([
@@ -525,3 +541,5 @@ def main(page: Page):
     patient_data_autoset(patient_hisno, patient_name) # 這些函數似乎會被開一個thread執行，所以不會阻塞
     
 ft.app(target=main)
+SDES_form.db_close()
+print(f"DB closing..")

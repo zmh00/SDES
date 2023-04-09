@@ -1,8 +1,5 @@
 import flet as ft
-from flet import Page
 import datetime
-# import bot_gui
-import time
 from typing import Union
 import psycopg2
 from psycopg2.sql import SQL, Identifier, Placeholder, Literal
@@ -10,7 +7,7 @@ from psycopg2.extras import RealDictCursor
 import logging
 
 # CONST and ATTRIBUTES
-TEST_MODE = False
+TEST_MODE = True
 DATE_MODE = 1
 HOST = '10.53.70.143'
 if TEST_MODE:
@@ -34,17 +31,18 @@ logger.setLevel(logging.DEBUG) #這是logger的level
 BASIC_FORMAT = '[%(asctime)s %(levelname)-8s] %(message)s'
 DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 formatter = logging.Formatter(BASIC_FORMAT, datefmt=DATE_FORMAT)
-##設定console handler的設定
-ch = logging.StreamHandler()
-ch.setLevel(logging.DEBUG) ##可以獨立設定console handler的level，如果不設就會預設使用logger的level
-ch.setFormatter(formatter)
+if TEST_MODE:
+    ##設定console handler的設定
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.DEBUG) ##可以獨立設定console handler的level，如果不設就會預設使用logger的level
+    ch.setFormatter(formatter)
+    logger.addHandler(ch)
 ##設定file handler的設定
 log_filename = "SDES_log.txt"
 fh = logging.FileHandler(log_filename) #預設mode='a'，持續寫入
 fh.setLevel(logging.DEBUG)
 fh.setFormatter(formatter)
 ##將handler裝上
-logger.addHandler(ch)
 logger.addHandler(fh)
 
 def db_close(): # 如果不釋出不知道會造成甚麼效應?
@@ -71,6 +69,7 @@ def format_today(mode):
         today = str(datetime.datetime.today().year-2000) + datetime.datetime.today().strftime("%m%d")
     return today
 
+
 class Measurement(ft.UserControl):
     def __init__(self, label: str, control_type: ft.Control, item_list: list[str]): # 接受參數用
         super().__init__()
@@ -89,6 +88,21 @@ class Measurement(ft.UserControl):
     def build(self): # 初始化UI
         pass # 需要客製化: 因為元件設計差異大，Method overriding after inheritence
 
+    
+    def add_before_build(self, data_row: dict): # 增加元素要透過這函數:影響item_list和body內容
+        for keys in data_row:
+            self.item_list.append(keys)
+            self.body[keys] = data_row[keys]
+    
+
+    def add_after_build(self, data_row: dict):
+        for keys in data_row:
+            self.item_list.append(keys)
+            self.body[keys] = data_row[keys]
+            self.row.controls.append(self.body[keys])
+        self.update()
+
+
     def data_set_value(self, values_dict):
         for item in self.item_list:
             if str(item).strip() == '': # 如果item是空字串
@@ -104,7 +118,7 @@ class Measurement(ft.UserControl):
     def data_return_default(self, e=None): # 恢復預設值
         pass
     
-    def data_format(self, e=None): # 帶入門診病例的格式
+    def data_opdformat(self, e=None): # 帶入門診病例的格式
         pass
     
     @property
@@ -130,6 +144,76 @@ class Measurement(ft.UserControl):
         return values
 
 
+def format_no_output(measurement:Measurement):
+    return ''
+
+
+def format_textfield(measurement:Measurement):
+    format_text = ''
+    other_format_text = ''
+    for i in measurement.body:
+        if i == 'OD' or i == 'OS':
+            if measurement.body[i].value.strip() != '':
+                format_text = format_text + f"{measurement.body[i].value} {i}, "
+        else:
+            if measurement.body[i].value.strip() != '':
+                other_format_text = other_format_text + f"{measurement.body[i].value} {i}, "
+    format_text = format_text + other_format_text
+    
+    if len(format_text) == 0:
+        return ''
+    else:
+        today = format_today(DATE_MODE)
+        format_text = f"{today} {measurement.label}:{format_text.rstrip(', ')}"
+    return format_text
+
+
+def format_checkbox(measurement:Measurement):
+    format_text = ''
+    for item_name in measurement.body:
+        if measurement.body[item_name].value != False:
+            format_text = format_text + f"{item_name}, "
+    
+    if len(format_text) == 0:
+        return ''
+    else:
+        today = format_today(DATE_MODE)
+        format_text = f"{today} {measurement.label}:{format_text.rstrip(', ')}"
+    return format_text
+
+
+def format_iop(measurement:Measurement):
+    format_text = ''
+    if measurement.body['OD'].value.strip() != '' and measurement.body['OS'].value.strip() != '':
+        return ''
+    else:
+        iop_od = measurement.body['OD'].value.strip()
+        iop_os = measurement.body['OS'].value.strip()
+        iop_mode = measurement.body['iop_mode'].value
+        format_text = f"{iop_od}/{iop_os}({iop_mode})"
+        today = format_today(DATE_MODE)    
+        format_text = f"{today} {measurement.label}:{format_text}"
+        return format_text
+
+
+def format_exo(measurement:Measurement):
+    exo_od=''
+    exo_os=''
+    exo_pd=''
+    if measurement.body['OD'].value.strip() != '':
+        exo_od = measurement.body['OD'].value.strip()
+    if measurement.body['OS'].value.strip() != '':
+        exo_os = measurement.body['OS'].value.strip()
+    if measurement.body['PD'].value.strip() != '':
+        exo_pd = measurement.body['PD'].value.strip()
+    if exo_od == '' and exo_os == '' and exo_pd == '':
+        return ''
+    else:
+        today = format_today(DATE_MODE)    
+        format_text = f"{today} {measurement.label}:{exo_od}>--{exo_pd}--<{exo_os}"
+        return format_text
+
+
 class Measurement_Text(Measurement):
     def __init__(self, label: str, item_list: list = None, multiline = False, format_func = None, default: dict = None):
         super().__init__(label, ft.TextField, item_list)
@@ -145,18 +229,6 @@ class Measurement_Text(Measurement):
             self.body[item].multiline = True
             self.body[item].height = None
         # self.row.update() # 建立時就指定應該不用update
-
-    def add_before_build(self, data_row: dict): # 增加元素要透過這函數:影響item_list和body內容
-        for keys in data_row:
-            self.item_list.append(keys)
-            self.body[keys] = data_row[keys]
-    
-    def add_after_build(self, data_row: dict):
-        for keys in data_row:
-            self.item_list.append(keys)
-            self.body[keys] = data_row[keys]
-            self.row.controls.append(self.body[keys])
-        self.update()
 
 
     def build(self):
@@ -215,30 +287,12 @@ class Measurement_Text(Measurement):
                 self.body[keys].value = self.default[keys]
             self.update() # 因為有update，只能在元件已經建立加入page後使用
         
-    # FIXME
-    def data_format(self, e=None):
+    
+    def data_opdformat(self, e=None):
         if self.format_func == None:
-            format_text = ''
-            data_exist = 0
-            for i in self.body:
-                if i == 'OD' or i == 'OS':
-                    if self.body[i].value.strip() != '':
-                        if data_exist:
-                            format_text = format_text + f", {self.body[i].value} {i}"
-                        else:
-                            format_text = format_text + f"{self.body[i].value} {i}"
-                        data_exist = 1
-                else:
-                    # TODO 以下兩行是給IOP的偵測模式用的，但這樣不通用，需要再考慮
-                    if data_exist:
-                        format_text = format_text + f"({self.body[i].value})" 
-            
-            if data_exist: # 只輸出有資料的
-                today = format_today(DATE_MODE)
-                format_text = f"{today} {self.label}:{format_text}"
+            format_text = format_textfield(self)
         else:
-            format_text = self.format_func() # EXO、IOP需要客製化
-
+            format_text = self.format_func(self) # EXO、IOP需要客製化
         return format_text
 
 
@@ -297,24 +351,11 @@ class Measurement_Check(Measurement):
             self.update() # 因為有update，只能在元件已經建立加入page後使用
 
 
-    def data_format(self, e=None):
+    def data_opdformat(self, e=None):
         if self.format_func == None:
-            format_text = ''
-            data_exist = 0
-            for item_name in self.body:
-                if self.body[item_name].value != False:
-                    if data_exist:
-                        format_text = format_text + f",{item_name}"
-                    else:
-                        format_text = format_text + f"{item_name}"
-                    data_exist = 1
-            
-            if data_exist: # 只輸出有資料的
-                today = format_today(DATE_MODE)
-                format_text = f"{today} {self.label}:{format_text}"
+            format_text = format_checkbox(self)
         else:
-            format_text = self.format_func() # 保留客製化需求?
-
+            format_text = self.format_func(self)
         return format_text
 
 
@@ -394,17 +435,13 @@ class Form(ft.Tab): #目的是擴增Tab的功能
         for measurement in self.measurement_list:
             measurement.data_return_default()
 
-    def data_format(self, e=None):
+    def data_opdformat(self, e=None):
         format_text = ''
-        print(self.measurement_list) # TODO
         for measurement in self.measurement_list:
-            text = measurement.data_format().strip()
+            text = measurement.data_opdformat()
             if text != '':
                 format_text = format_text + text + '\n'
-        
-        print(format_text) # TODO
-
-        # return format_text
+        return format_text
 
     @property
     def db_column_names(self): # 集合所有的measurement column_names
@@ -584,19 +621,25 @@ class Forms(): #集合Form(Tab)，包裝存、取、清除功能
         for form in self.form_list:
             form.set_doctor_id(doctor_id=doctor_id)
 
+
     def set_patient_data(self, patient_hisno, patient_name, *args):
         self.patient_hisno = patient_hisno
         self.patient_name = patient_name
         for form in self.form_list:
             form.set_patient_data(patient_hisno=patient_hisno, patient_name=patient_name)
 
-    # TODO format帶入門診部分還沒處理好，客製化format_func
-    def data_format(self, e=None):
-        pass
+
+    def data_opdformat(self, e=None):
+        form_text = ''
+        for form in self.form_list:
+            form_text = form_text + form.data_opdformat()
+        return form_text
+
 
     def data_clear(self, e=None): # 全部forms 清除
         for form in self.form_list:
             form.data_clear()
+
 
     def db_migrate(self): # 全部forms migrate
         for form in self.form_list:
@@ -638,7 +681,7 @@ class Forms(): #集合Form(Tab)，包裝存、取、清除功能
 
 ########################## Basic
 # 客製化IOP按鈕
-iop = Measurement_Text('IOP', default=dict(iop_mode = 'Pneumo'))
+iop = Measurement_Text('IOP', default=dict(iop_mode = 'Pneumo'), format_func=format_iop)
 iop.add_before_build(
     {
         'iop_mode': ft.Dropdown(
@@ -663,6 +706,8 @@ form_basic = Form(
     measurement_list=[
         Measurement_Text('VA'),
         Measurement_Text('REF'),
+        Measurement_Text('K(OD)', ['H','V']),
+        Measurement_Text('K(OS)', ['H','V']),
         iop,
         Measurement_Text('Cornea', multiline=True),
         Measurement_Text('Lens'),
@@ -677,7 +722,7 @@ form_plasty = Form(
     measurement_list = [
         Measurement_Text('MRD'),
         Measurement_Text('LF'),
-        Measurement_Text('Exo', ['OD', 'PD', 'OS']),
+        Measurement_Text('Exo', ['OD', 'PD', 'OS'], format_func=format_exo),
         Measurement_Text('EOM'),
         Measurement_Check(
             label = 'CAS', 
@@ -726,16 +771,6 @@ form_ivi = Form(
         Measurement_Text('Fundus', multiline=True),
     ]
 )
-########################## SETTING # TODO 需要重構
-# setting_list=[
-#     Measurement_Text('Doctor_ID', ['']),
-#     Measurement_Text('DATE_MODE', [''], default={'':'1'}),
-#     Measurement_Text('HOST', [''], default={'':'localhost'}),
-#     Measurement_Text('PORT', [''], default={'':'5432'}),
-#     Measurement_Text('DBNAME', [''], default={'':'vgh_oph'}),
-#     Measurement_Text('USER', [''], default={'':'postgres'}),
-#     Measurement_Text('PASSWORD', [''], default={'':'12090216'}),
-# ]
 
 ########################## TEST
 form_test = Form(
