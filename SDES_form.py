@@ -1,6 +1,6 @@
 import flet as ft
 import datetime
-from typing import Union
+from typing import Union, List
 import psycopg2
 from psycopg2.sql import SQL, Identifier, Placeholder, Literal
 from psycopg2.extras import RealDictCursor
@@ -16,6 +16,7 @@ PORT = '5431'
 DBNAME = 'vgh_oph'
 USER = 'postgres'
 PASSWORD ='qazxcdews'
+FONT_SIZE_FACTOR = 0.8
 # DOCTOR_ID
 
 # COLUMN NAMES
@@ -71,11 +72,18 @@ def format_today(mode):
 
 
 class Measurement(ft.UserControl):
-    def __init__(self, label: str, control_type: ft.Control, item_list: list[str]): # 接受參數用
+    def __init__(self, label: str, control_type: ft.Control, item_list: List[str]): # 接受參數用
         super().__init__()
         self.label = label # 辨識必須: 後續加入form內的measurement都需要label
         self.control_type = control_type # 未使用考慮可以移除
-        self.head = ft.Text(self.label, text_align='center', style=ft.TextThemeStyle.TITLE_LARGE, weight=ft.FontWeight.W_400, color=ft.colors.BLACK) 
+        self.head = ft.Text(
+            self.label, 
+            text_align='center', 
+            # style=ft.TextThemeStyle.TITLE_MEDIUM,
+            size=25 * FONT_SIZE_FACTOR, 
+            weight=ft.FontWeight.W_600, 
+            color=ft.colors.BLACK
+        ) 
         self.body = {} # 不同型態measurement客製化
         if type(item_list) is not list: # 輸入一個item轉換成list型態
             self.item_list = [str(item_list)]
@@ -143,7 +151,7 @@ class Measurement(ft.UserControl):
             values[column_names[i]] = value
         return values
 
-
+#### FORMAT REGION ####
 def format_no_output(measurement:Measurement):
     return ''
 
@@ -189,8 +197,8 @@ def format_iop(measurement:Measurement):
     else:
         iop_od = measurement.body['OD'].value.strip()
         iop_os = measurement.body['OS'].value.strip()
-        iop_mode = measurement.body['iop_mode'].value
-        format_text = f"{iop_od}/{iop_os}({iop_mode})"
+        iop_mode = measurement.body['mode'].value
+        format_text = f"({iop_mode}) {iop_od}/{iop_os}mmHg"
         today = format_today(DATE_MODE)    
         format_text = f"{today} {measurement.label}:{format_text}"
         return format_text
@@ -212,7 +220,7 @@ def format_exo(measurement:Measurement):
         today = format_today(DATE_MODE)    
         format_text = f"{today} {measurement.label}:{exo_od}>--{exo_pd}--<{exo_os}"
         return format_text
-
+#### FORMAT REGION ####
 
 class Measurement_Text(Measurement):
     def __init__(self, label: str, item_list: list = None, multiline = False, format_func = None, default: dict = None):
@@ -244,7 +252,7 @@ class Measurement_Text(Measurement):
             self.body[self.item_list[0]] = ft.TextField(autofocus=True, **style_textfield)
         else:
             for i, item_name in enumerate(self.item_list):
-                if self.body.get(item_name, None) != None:
+                if self.body.get(item_name, None) != None: # 表示body已有control
                     continue
                 if i == 0:
                     self.body[item_name] = ft.TextField(label=item_name, autofocus=True, **style_textfield)
@@ -297,7 +305,7 @@ class Measurement_Text(Measurement):
 
 
 class Measurement_Check(Measurement):
-    def __init__(self, label: str, item_list: list, width_list: Union[list[int], int] = 70, format_func = None, default: dict = None, compact = False):
+    def __init__(self, label: str, item_list: list, width_list: Union[List[int], int] = 70, format_func = None, default: dict = None, compact = False):
         super().__init__(label, ft.Checkbox, item_list)
         self.default = default # {item_keys: default_value}
         self.format_func = format_func
@@ -360,7 +368,7 @@ class Measurement_Check(Measurement):
 
 
 class Form(ft.Tab): #目的是擴增Tab的功能
-    def __init__(self, label, measurement_list: list[Measurement]):
+    def __init__(self, label, measurement_list: List[Measurement]):
         super().__init__()
         self.label = label # 資料儲存
         self.measurement_list = measurement_list # 資料儲存
@@ -603,7 +611,7 @@ class Form(ft.Tab): #目的是擴增Tab的功能
 
 
 class Forms(): #集合Form(Tab)，包裝存、取、清除功能
-    def __init__(self, form_list: list[Form]) -> None:
+    def __init__(self, form_list: List[Form]) -> None:
         self.form_list = form_list
         self.doctor_id = None
         self.patient_hisno = None
@@ -681,10 +689,10 @@ class Forms(): #集合Form(Tab)，包裝存、取、清除功能
 
 ########################## Basic
 # 客製化IOP按鈕
-iop = Measurement_Text('IOP', default=dict(iop_mode = 'Pneumo'), format_func=format_iop)
+iop = Measurement_Text('IOP', format_func=format_iop)
 iop.add_before_build(
     {
-        'iop_mode': ft.Dropdown(
+        'mode': ft.Dropdown(
             width=100,
             height=40,
             content_padding = 10,
@@ -755,11 +763,31 @@ form_dryeye = Form(
 )
 
 ########################## IVI
+iop = Measurement_Text('IOP', format_func=format_iop)
+iop.add_before_build(
+    {
+        'mode': ft.Dropdown(
+            width=100,
+            height=40,
+            content_padding = 10,
+            dense=True,
+            expand=True,
+            label="Mode",
+            # hint_text="",
+            options=[
+                ft.dropdown.Option("Pneumo"),
+                ft.dropdown.Option("GAT"),
+                ft.dropdown.Option("Tonopen"),
+            ],
+        )
+    }   
+)
+
 form_ivi = Form(
     label="IVI",
     measurement_list=[
         Measurement_Text('VA'),
-        iop, # TODO 測試用
+        iop,
         Measurement_Text('Lens'),
         Measurement_Text('CMT'),
         Measurement_Check('IRF', ['OD','OS'], [70,70], compact=True),
@@ -773,9 +801,10 @@ form_ivi = Form(
 )
 
 ########################## TEST
-form_test = Form(
+form_test2 = Form(
     label="Test",
     measurement_list=[
+        iop,
         Measurement_Text('test1'),
         Measurement_Text('test2'),
         Measurement_Check('IRF', ['OD','OS'], [70,70], compact=True),
@@ -786,7 +815,10 @@ form_test = Form(
 db_conn = None
 cursor = None
 
-forms = Forms([form_dryeye, form_ivi, form_plasty, form_basic]) # 註冊使用的form
+if TEST_MODE:
+    forms = Forms([form_dryeye, form_ivi, form_plasty, form_basic])
+else:
+    forms = Forms([form_dryeye, form_ivi, form_plasty, form_basic]) # 註冊使用的form
 
 if __name__ == '__main__': # load這個library來建立DB
     db_connect()

@@ -186,21 +186,31 @@ def main(page: Page):
         time.sleep(0.1)
 
 
+    def setting_set_doctorid(e=None):
+        AllForm.set_doctor_id(doctor_id_viewdoctorid.value)
+        custom_title.value = f"病歷結構化輸入系統 [DOC:{doctor_id_viewdoctorid.value}]"
+        doctor_id_viewall.value = doctor_id_viewdoctorid.value
+        view_pop()
+        test_db()
+
+    
     def setting_set_all(e=None):
-        AllForm.set_doctor_id(doctor_id.value)
-        custom_title.value = f"病歷結構化輸入系統 [DOC:{doctor_id.value}]"
+        AllForm.set_doctor_id(doctor_id_viewall.value)
+        custom_title.value = f"病歷結構化輸入系統 [DOC:{doctor_id_viewall.value}]"
         SDES_form.DATE_MODE = date_mode.value
         SDES_form.HOST = host.value
         SDES_form.PORT = port.value
         SDES_form.DBNAME = dbname.value
         SDES_form.USER = user.value
         SDES_form.PASSWORD = psw.value
+        # SDES_form.FONT_SIZE_FACTOR = int(font_size_slider.value) / 100
         view_pop()
         test_db()
 
 
     # TODO 需要重構
-    doctor_id = ft.TextField(label="Doctor ID", hint_text="Please enter short code of doctor ID(EX:4123)", dense=True, height=45, on_submit=setting_set_all)
+    doctor_id_viewdoctorid = ft.TextField(label="Doctor ID", hint_text="Please enter short code of doctor ID(EX:4123)", dense=True, height=45, on_submit=setting_set_doctorid)
+    doctor_id_viewall = ft.TextField(label="Doctor ID", hint_text="Please enter short code of doctor ID(EX:4123)", dense=True, height=45, on_submit=setting_set_all)
     date_mode = ft.Dropdown(
         options=[
             ft.dropdown.Option(key=1, text='西元紀年'),
@@ -214,14 +224,16 @@ def main(page: Page):
     dbname = ft.TextField(label="DB NAME", value=SDES_form.DBNAME, dense=True, height=45)
     user = ft.TextField(label="USER NAME", value=SDES_form.USER, dense=True, height=45)
     psw = ft.TextField(label="PASSWORD", value=SDES_form.PASSWORD ,password=True, dense=True, height=45)
-
-    def setting_set_doctorid(e=None):
-        AllForm.set_doctor_id(doctor_id.value)
-        custom_title.value = f"病歷結構化輸入系統 [DOC:{doctor_id.value}]"
-        view_pop()
-        test_db()
-
+    # TODO 無法透過更新數值調整元件大小 => 需要重繪
+    # font_size_slider = ft.Slider(min=20, max=100, divisions=4, label="{value}%", value=(SDES_form.FONT_SIZE_FACTOR*100), expand=True)
+    # font_size_row = ft.Row(
+    #     controls=[
+    #         ft.Text("Font Size:"),
+    #         font_size_slider,
+    #     ],
+    # )
     
+
     def setting_show_doctorid(e=None):
         view_setting_doctorid = ft.View(
             route = "/setting",
@@ -237,14 +249,15 @@ def main(page: Page):
             controls=[
                 ft.Column(
                     controls=[
-                        doctor_id,
+                        doctor_id_viewdoctorid,
                         ft.Row(
                             controls=[ft.ElevatedButton("設定", on_click=setting_set_doctorid, expand=True)]
-                        ),
+                        ), 
                     ], 
+                    expand=True,
                     alignment=ft.MainAxisAlignment.CENTER,
-                    expand=True
                 ),
+                authorship,
             ],
         )
 
@@ -267,13 +280,16 @@ def main(page: Page):
             controls=[
                 ft.Column(
                     controls=[
-                        doctor_id, date_mode, host, port, dbname, user, psw,
+                        doctor_id_viewall, date_mode, host, port, dbname, user, psw, 
+                        # font_size_row,
                         ft.Row(
                             controls=[ft.ElevatedButton("設定", on_click=setting_set_all, expand=True)]
                         ),
                     ], 
+                    expand=True,
                     alignment=ft.MainAxisAlignment.CENTER
                 ),
+                authorship
             ],
         )
 
@@ -529,7 +545,10 @@ def main(page: Page):
             alignment=ft.MainAxisAlignment.CENTER,
         )
     ])
-
+    authorship = ft.Row(
+        controls = [ft.Text("ZMH © 2023", style=ft.TextThemeStyle.BODY_SMALL, weight=ft.FontWeight.BOLD)],
+        alignment=ft.MainAxisAlignment.CENTER,
+    )
     #################################################### Final
     page.add(
          patient_column,
