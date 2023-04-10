@@ -1,4 +1,5 @@
 import requests
+import os
 
 # 輸入GitHub用戶名和存儲庫名稱
 username = "zmh00"
@@ -33,3 +34,5 @@ if response.status_code == requests.codes.ok:
 else:
     # 請求失敗時輸出錯誤訊息
     print(f"請求失敗，HTTP代碼：{response.status_code}")
+
+os.system("pause")
