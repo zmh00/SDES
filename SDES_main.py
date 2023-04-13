@@ -56,7 +56,7 @@ def captureimage(control = None, postfix = ''):
     c.CaptureToImage(path)
 
 
-def patient_data_autoset(patient_hisno: ft.TextButton, patient_name: ft.Text):
+def patient_data_autoset(patient_hisno: ft.TextButton, patient_name: ft.Text, toggle_func): # TODO refactor the parameters and structure
     old_p_dict = None
     state = -1
     with auto.UIAutomationInitializerInThread():
@@ -76,15 +76,18 @@ def patient_data_autoset(patient_hisno: ft.TextButton, patient_name: ft.Text):
                     if p_dict != old_p_dict:
                         patient_hisno.content.value = p_dict['hisno']
                         patient_name.value = p_dict['name']
-                        patient_hisno.update()
-                        patient_name.update()
                         old_p_dict = p_dict
+                        if patient_hisno.visible == False:
+                            toggle_func() # 切換函數，需要研究如何呼叫較適合
+                        else:
+                            patient_hisno.update()
+                            patient_name.update()
                     else:
-                        if state != 1:
+                        if state != 1: # 找過一樣的data
                             state = 1
                             auto.Logger.WriteLine(f"Same Patient Data", auto.ConsoleColor.Yellow)
                 else:
-                    if state != 0:
+                    if state != 0: # 找不到window frmSoap
                         state = 0
                         auto.Logger.WriteLine(f"No window frmSoap", auto.ConsoleColor.Red)
                         time.sleep(0.2)
@@ -173,7 +176,7 @@ def main(page: Page):
         page.window_left = width - page.window_width
         page.update()
 
-    def toggle_patient_data(e):
+    def toggle_patient_data(e=None):
         patient_hisno.visible = not patient_hisno.visible
         patient_name.visible = not patient_name.visible
         patient_row_manual.visible = not patient_row_manual.visible
@@ -477,6 +480,7 @@ def main(page: Page):
             try:
                 AllForm.db_save(**patient) # 傳入{'patient_hisno':..., 'patient_name':...,}
                 notify("完成資料寫入資料庫")
+                AllForm.data_clear()
             except Exception as e:
                 notify("資料寫入資料庫失敗")
 
@@ -494,6 +498,7 @@ def main(page: Page):
             try:
                 set_O(text)
                 notify("完成資料寫入門診系統")
+                AllForm.data_clear()
             except Exception as e:
                 notify("資料寫入門診系統失敗")
 
@@ -557,7 +562,7 @@ def main(page: Page):
     )
     setting_show_doctorid()
     #################################################### Other functions
-    patient_data_autoset(patient_hisno, patient_name) # 這些函數似乎會被開一個thread執行，所以不會阻塞
+    patient_data_autoset(patient_hisno, patient_name, toggle_func=toggle_patient_data) # 這些函數似乎會被開一個thread執行，所以不會阻塞
     
 ft.app(target=main)
 SDES_form.db_close()
