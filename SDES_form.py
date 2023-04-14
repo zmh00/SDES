@@ -421,6 +421,9 @@ class Form(ft.Tab): #目的是擴增Tab的功能
 
 
     def data_exist(self, values_dict: dict) -> bool:
+        '''
+        判斷傳入values_dict是否有值，針對不同類型的資料有不同判斷方式
+        '''
         for key in values_dict:
             value =  values_dict[key]
             if type(value) == str and value.strip() != '':
@@ -659,7 +662,7 @@ class Forms(): #集合Form(Tab)，包裝存、取、清除功能
         for form in self.form_list:
             res = form.db_save(patient_hisno, *args, **kwargs)
             if res == None:
-                form.data_clear()
+                form.data_clear() # TODO 這行有甚麼用?
                 logger.info(f"{form.label}||{self.doctor_id}||{patient_hisno}||Skip writing to database")
             elif res == False:
                 logger.error(f"{form.label}||{self.doctor_id}||{patient_hisno}||Fail writing to database")
@@ -675,7 +678,8 @@ class Forms(): #集合Form(Tab)，包裝存、取、清除功能
             logger.error(f"{self.form_list[tab_index].label}||{self.doctor_id}||{patient_hisno}||Fail reading from database")
         else:
             logger.info(f"{self.form_list[tab_index].label}||{self.doctor_id}||{patient_hisno}||Finish reading from database")
-
+        
+        return res # 回傳給GUI做notify
 
     def db_load_all(self, patient_hisno, *args, **kwargs): # 全部forms 讀取 => 暫時不用
         for form in self.form_list:

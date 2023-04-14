@@ -182,11 +182,11 @@ def main(page: Page):
         patient_row_manual.visible = not patient_row_manual.visible
         patient_column.update()
         
-    def notify(text: str):
+    def notify(text: str, delay = 0.2):
         page.snack_bar.content = ft.Text(text)
         page.snack_bar.open = True
         page.update()
-        time.sleep(0.1)
+        time.sleep(delay)
 
 
     def setting_set_doctorid(e=None):
@@ -470,8 +470,14 @@ def main(page: Page):
     def load_db_one(e):
         patient = patient_data_check()
         if patient != False:
-            AllForm.db_load_one(patient_hisno=patient['patient_hisno'], tab_index=tabs.selected_index)
-            # notify成功讀取 => 已經有display通知?
+            res = AllForm.db_load_one(patient_hisno=patient['patient_hisno'], tab_index=tabs.selected_index)
+            if res ==  None:
+                notify("資料庫為空")
+            elif res == False:
+                notify("讀取資料失敗")
+            elif res == True:
+                notify("讀取資料成功")
+                # notify成功讀取 => 已經有display通知?
 
     
     def save_db(e):
