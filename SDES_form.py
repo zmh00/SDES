@@ -820,9 +820,9 @@ db_conn = None
 cursor = None
 
 if TEST_MODE:
-    forms = Forms([form_dryeye, form_ivi, form_plasty, form_basic])
+    forms = Forms([form_dryeye, form_ivi, form_plasty])
 else:
-    forms = Forms([form_dryeye, form_ivi, form_plasty, form_basic]) # 註冊使用的form
+    forms = Forms([form_dryeye, form_ivi, form_plasty]) # 註冊使用的form
 
 if __name__ == '__main__': # load這個library來建立DB
     db_connect()

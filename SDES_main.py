@@ -56,7 +56,7 @@ def captureimage(control = None, postfix = ''):
     c.CaptureToImage(path)
 
 
-def patient_data_autoset(patient_hisno: ft.TextButton, patient_name: ft.Text, toggle_func): # TODO refactor the parameters and structure
+def patient_data_autoset(patient_hisno: ft.TextButton, patient_name: ft.Text, patient_hisno_manual: ft.TextField, toggle_func): # TODO refactor the parameters and structure
     old_p_dict = None
     state = -1
     with auto.UIAutomationInitializerInThread():
@@ -73,12 +73,13 @@ def patient_data_autoset(patient_hisno: ft.TextButton, patient_name: ft.Text, to
                         'birthday': l[4][1:-1],
                         'age': l[3][:2]
                     }
-                    if p_dict != old_p_dict:
+                    if p_dict != old_p_dict: # 找到新病人
                         patient_hisno.content.value = p_dict['hisno']
                         patient_name.value = p_dict['name']
                         old_p_dict = p_dict
                         if patient_hisno.visible == False:
                             toggle_func() # 切換函數，需要研究如何呼叫較適合
+                            patient_hisno_manual.value = '' # 清空manual的資料
                         else:
                             patient_hisno.update()
                             patient_name.update()
@@ -96,11 +97,11 @@ def patient_data_autoset(patient_hisno: ft.TextButton, patient_name: ft.Text, to
                 time.sleep(0.2)
 
 
-def set_O(text_input, location=0, replace=0):
+def set_O(text_input, location=1, replace=0):
     return set_text('o', text_input, location, replace)
 
 
-def set_text(panel, text_input, location=0, replace=0) -> str:
+def set_text(panel, text_input:str, location, replace) -> str:
     # panel = 's','o','p'
     # location=0 從頭寫入 | location=1 從尾寫入
     # replace=0 append | replace=1 取代原本的內容
@@ -115,6 +116,8 @@ def set_text(panel, text_input, location=0, replace=0) -> str:
     if panel not in parameters.keys():
         auto.Logger.WriteLine("Wrong panel in input_text",auto.ConsoleColor.Red)
         return False
+    
+    text_input = text_input.replace('\n','\r\n') # 原本換行符號進入門診系統需要更改
 
     with auto.UIAutomationInitializerInThread():
         window_soap = auto.WindowControl(searchDepth=1, AutomationId="frmSoap")
@@ -472,7 +475,7 @@ def main(page: Page):
         if patient != False:
             res = AllForm.db_load_one(patient_hisno=patient['patient_hisno'], tab_index=tabs.selected_index)
             if res ==  None:
-                notify("資料庫為空")
+                notify("無過去資料可讀取")
             elif res == False:
                 notify("讀取資料失敗")
             elif res == True:
@@ -488,6 +491,7 @@ def main(page: Page):
                 notify("完成資料寫入資料庫")
                 AllForm.data_clear()
             except Exception as e:
+                SDES_form.logger.error(e)
                 notify("資料寫入資料庫失敗")
 
 
@@ -498,6 +502,7 @@ def main(page: Page):
                 AllForm.db_save(**patient) # 傳入{'patient_hisno':..., 'patient_name':...,}
                 notify("完成資料寫入資料庫")
             except Exception as e:
+                SDES_form.logger.error(e)
                 notify("資料寫入資料庫失敗")
 
             text = AllForm.data_opdformat()
@@ -506,6 +511,7 @@ def main(page: Page):
                 notify("完成資料寫入門診系統")
                 AllForm.data_clear()
             except Exception as e:
+                SDES_form.logger.error(e)
                 notify("資料寫入門診系統失敗")
 
 
@@ -568,7 +574,7 @@ def main(page: Page):
     )
     setting_show_doctorid()
     #################################################### Other functions
-    patient_data_autoset(patient_hisno, patient_name, toggle_func=toggle_patient_data) # 這些函數似乎會被開一個thread執行，所以不會阻塞
+    patient_data_autoset(patient_hisno, patient_name, patient_hisno_manual, toggle_func=toggle_patient_data) # 這些函數會被開一個thread執行，所以不會阻塞
     
 ft.app(target=main)
 SDES_form.db_close()
