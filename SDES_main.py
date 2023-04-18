@@ -192,17 +192,33 @@ def main(page: Page):
         time.sleep(delay)
 
 
-    def setting_set_doctorid(e=None):
+    def setting_submit_initial(e=None):
+        '''
+        設定doctorid，用於初次登入
+        '''
         AllForm.set_doctor_id(doctor_id_viewdoctorid.value)
-        custom_title.value = f"病歷結構化輸入系統 [DOC:{doctor_id_viewdoctorid.value}]"
-        doctor_id_viewall.value = doctor_id_viewdoctorid.value
+        if doctor_id_viewdoctorid.value.strip() != '':
+            custom_title.value = f"[DOC:{doctor_id_viewdoctorid.value}]"
+            doctor_id_viewall.value = doctor_id_viewdoctorid.value
+        
+        # 將沒有被選到的forms移除
+        if forms_selection_all.value != True:
+            for control in forms_selection.controls:
+                if control.value == False:
+                    for i, form in enumerate(SDES_form.forms.form_list):
+                        if form.label == control.label:
+                            del SDES_form.forms.form_list[i]
+
         view_pop()
         test_db()
 
     
-    def setting_set_all(e=None):
+    def setting_submit_connection(e=None):
+        '''
+        設定連線參數
+        '''
         AllForm.set_doctor_id(doctor_id_viewall.value)
-        custom_title.value = f"病歷結構化輸入系統 [DOC:{doctor_id_viewall.value}]"
+        custom_title.value = f"[DOC:{doctor_id_viewall.value}]"
         SDES_form.DATE_MODE = date_mode.value
         SDES_form.HOST = host.value
         SDES_form.PORT = port.value
@@ -214,9 +230,37 @@ def main(page: Page):
         test_db()
 
 
-    # TODO 需要重構
-    doctor_id_viewdoctorid = ft.TextField(label="Doctor ID", hint_text="Please enter short code of doctor ID(EX:4123)", dense=True, height=45, on_submit=setting_set_doctorid)
-    doctor_id_viewall = ft.TextField(label="Doctor ID", hint_text="Please enter short code of doctor ID(EX:4123)", dense=True, height=45, on_submit=setting_set_all)
+    def setting_forms_checkall(e=None):
+        '''
+        勾選或取消所有forms時會一次設定其他checkbox
+        '''
+        if forms_selection_all.value == True:
+            for control in forms_selection.controls:
+                control.value = True
+            forms_selection.update()
+        else:
+            for control in forms_selection.controls:
+                control.value = False
+            forms_selection.update()
+
+    
+    def setting_forms_uncheckall(e=None):
+        '''
+        有任一checkbox uncheck要uncheck activate all
+        '''
+        if forms_selection_all.value == True and e.control.value == False:
+            forms_selection_all.value = False
+            forms_selection_all.update()
+
+
+    # 系統設定 # TODO 需要重構
+    forms_selection_all = ft.Checkbox(label="Activate ALL Forms", value=True, height=25, width=200, on_change=setting_forms_checkall)
+    forms_selection = ft.Row(
+        controls=[ft.Checkbox(label=form.label, value=True, height=25, width=200, on_change=setting_forms_uncheckall) for form in SDES_form.forms.form_list],
+        wrap=True
+    )
+    doctor_id_viewdoctorid = ft.TextField(label="Doctor ID", hint_text="Please enter short code of doctor ID(EX:4123)", dense=True, height=45, on_submit=setting_submit_initial, autofocus=True)
+    doctor_id_viewall = ft.TextField(label="Doctor ID", hint_text="Please enter short code of doctor ID(EX:4123)", dense=True, height=45, on_submit=setting_submit_connection, autofocus=True)
     date_mode = ft.Dropdown(
         options=[
             ft.dropdown.Option(key=1, text='西元紀年'),
@@ -240,12 +284,15 @@ def main(page: Page):
     # )
     
 
-    def setting_show_doctorid(e=None):
+    def setting_show_initial(e=None):
+        '''
+        Initial Settings: doctorid + forms selection
+        '''
         view_setting_doctorid = ft.View(
-            route = "/setting",
+            route = "/settings_initial",
             appbar=ft.AppBar( 
                 title=ft.Row([
-                        ft.WindowDragArea(ft.Container(ft.Text("系統設定", size=15, weight=ft.FontWeight.BOLD), alignment=ft.alignment.center_left, padding=ft.padding.only(bottom=3)), expand=True),
+                        ft.WindowDragArea(ft.Container(ft.Text("Settings", size=15, weight=ft.FontWeight.BOLD), alignment=ft.alignment.center_left, padding=ft.padding.only(bottom=3)), expand=True),
                         ft.IconButton(ft.icons.CLOSE, on_click=lambda _: page.window_close(), icon_size = 25, tooltip = 'Close')
                     ]),
                 center_title=False,
@@ -256,8 +303,10 @@ def main(page: Page):
                 ft.Column(
                     controls=[
                         doctor_id_viewdoctorid,
+                        forms_selection_all,
+                        forms_selection,
                         ft.Row(
-                            controls=[ft.ElevatedButton("設定", on_click=setting_set_doctorid, expand=True)]
+                            controls=[ft.ElevatedButton("Apply Settings", on_click=setting_submit_initial, expand=True)]
                         ), 
                     ], 
                     expand=True,
@@ -271,12 +320,15 @@ def main(page: Page):
         page.update()
 
 
-    def setting_show_all(e=None):
+    def setting_show_connection(e=None):
+        '''
+        Settings: connection
+        '''
         view_setting = ft.View(
-            route = "/setting",
+            route = "/settings_connection",
             appbar=ft.AppBar( 
                 title=ft.Row([
-                        ft.WindowDragArea(ft.Container(ft.Text("系統設定", size=15, weight=ft.FontWeight.BOLD), alignment=ft.alignment.center_left, padding=ft.padding.only(bottom=3)), expand=True),
+                        ft.WindowDragArea(ft.Container(ft.Text("Settings: Connection", size=15, weight=ft.FontWeight.BOLD), alignment=ft.alignment.center_left, padding=ft.padding.only(bottom=3)), expand=True),
                         ft.IconButton(ft.icons.CLOSE, on_click=lambda _: page.window_close(), icon_size = 25, tooltip = 'Close')
                     ]),
                 center_title=False,
@@ -289,7 +341,7 @@ def main(page: Page):
                         doctor_id_viewall, date_mode, host, port, dbname, user, psw, 
                         # font_size_row,
                         ft.Row(
-                            controls=[ft.ElevatedButton("設定", on_click=setting_set_all, expand=True)]
+                            controls=[ft.ElevatedButton("Apply Settings", on_click=setting_submit_connection, expand=True)]
                         ),
                     ], 
                     expand=True,
@@ -358,13 +410,15 @@ def main(page: Page):
     # Appbar => 頂部工作列
     page.window_title_bar_hidden = True
     page.window_title_bar_buttons_hidden = True
-    custom_title = ft.Text("病歷結構化輸入系統 [尚未輸入醫師ID]", size=15, weight=ft.FontWeight.BOLD)
+    custom_title = ft.Text("[未輸入醫師ID]", size=15, weight=ft.FontWeight.BOLD)
     page.appbar = ft.AppBar(
         leading=ft.Icon(ft.icons.DOUBLE_ARROW),
-        leading_width=20,
+        leading_width=10,
         title=ft.Row([
                 ft.WindowDragArea(ft.Container(custom_title, alignment=ft.alignment.center_left, padding=ft.padding.only(bottom=3)), expand=True),
-                ft.IconButton(ft.icons.SETTINGS, on_click= setting_show_all, icon_size = 20, tooltip = 'Setting'),
+                # TODO 更改forms表單
+                # ft.IconButton(ft.icons.TEXT_SNIPPET_OUTLINED, on_click= setting_show_initial, icon_size = 20, tooltip = 'Forms'),
+                ft.IconButton(ft.icons.SETTINGS, on_click= setting_show_connection, icon_size = 20, tooltip = 'Connection'),
                 ft.IconButton(ft.icons.CLOSE, on_click=lambda _: page.window_close(), icon_size = 20, tooltip = 'Close')
             ]),
         center_title=False,
@@ -455,7 +509,7 @@ def main(page: Page):
         if patient_hisno.visible == False: # 手動輸入病人資訊
             _patient_hisno = str(patient_hisno_manual.value).strip()
             if _patient_hisno =='':
-                notify("無法取得病人病歷號")
+                notify("未輸入病人病歷號")
                 return False
             else:
                 return_dict['patient_hisno'] = _patient_hisno
@@ -470,7 +524,7 @@ def main(page: Page):
                 return_dict['patient_name'] = _patient_name
         return return_dict
 
-    def load_db_one(e):
+    def load_db_one(e=None):
         patient = patient_data_check()
         if patient != False:
             res = AllForm.db_load_one(patient_hisno=patient['patient_hisno'], tab_index=tabs.selected_index)
@@ -483,36 +537,48 @@ def main(page: Page):
                 # notify成功讀取 => 已經有display通知?
 
     
-    def save_db(e):
+    def save_db(e=None):
         patient = patient_data_check()
         if patient != False:
             try:
-                AllForm.db_save(**patient) # 傳入{'patient_hisno':..., 'patient_name':...,}
-                notify("完成資料寫入資料庫")
-                AllForm.data_clear()
+                res, error_forms = AllForm.db_save(**patient) # 傳入{'patient_hisno':..., 'patient_name':...,}
+                if res == False:
+                    notify(f"資料寫入失敗:{error_forms}")
+                else:
+                    notify("資料寫入成功")
             except Exception as e:
                 SDES_form.logger.error(e)
-                notify("資料寫入資料庫失敗")
+                notify("資料寫入異常")
 
 
-    def save_opd_db(e):
+    def save_opd_db(e=None):
         patient = patient_data_check()
         if patient != False:
-            try:
-                AllForm.db_save(**patient) # 傳入{'patient_hisno':..., 'patient_name':...,}
-                notify("完成資料寫入資料庫")
-            except Exception as e:
-                SDES_form.logger.error(e)
-                notify("資料寫入資料庫失敗")
-
             text = AllForm.data_opdformat()
             try:
                 set_O(text)
                 notify("完成資料寫入門診系統")
-                AllForm.data_clear()
             except Exception as e:
                 SDES_form.logger.error(e)
                 notify("資料寫入門診系統失敗")
+            
+            try:
+                res, error_forms = AllForm.db_save(**patient) # 傳入{'patient_hisno':..., 'patient_name':...,}
+                if res == False:
+                    notify(f"資料寫入失敗:{error_forms}")
+                else:
+                    notify("資料寫入成功")
+            except Exception as e:
+                SDES_form.logger.error(e)
+                notify("資料寫入異常")
+
+
+    def clear_forms(e=None):
+        try:
+            AllForm.data_clear()
+            notify("已清除所有表格")
+        except Exception as e:
+            notify("清除表格異常")
 
 
     ########################## submit
@@ -549,7 +615,7 @@ def main(page: Page):
                     icon=ft.icons.DELETE_FOREVER_OUTLINED,  
                     icon_color='red', 
                     expand=True,
-                    on_click = AllForm.data_clear
+                    on_click = clear_forms
                 ),
                 ft.OutlinedButton(
                     text = "讀取資料庫(S)",
@@ -572,7 +638,7 @@ def main(page: Page):
          tabview,
          submit,
     )
-    setting_show_doctorid()
+    setting_show_initial()
     #################################################### Other functions
     patient_data_autoset(patient_hisno, patient_name, patient_hisno_manual, toggle_func=toggle_patient_data) # 這些函數會被開一個thread執行，所以不會阻塞
     

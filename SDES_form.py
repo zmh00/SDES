@@ -5,9 +5,10 @@ import psycopg2
 from psycopg2.sql import SQL, Identifier, Placeholder, Literal
 from psycopg2.extras import RealDictCursor
 import logging
+import inspect
 
 # CONST and ATTRIBUTES
-TEST_MODE = False
+TEST_MODE = True
 DATE_MODE = 1
 HOST = '10.53.70.143'
 if TEST_MODE:
@@ -16,7 +17,7 @@ PORT = '5431'
 DBNAME = 'vgh_oph'
 USER = 'postgres'
 PASSWORD ='qazxcdews'
-FONT_SIZE_FACTOR = 0.8
+FONT_SIZE_FACTOR = 0.6
 # DOCTOR_ID
 
 # COLUMN NAMES
@@ -56,9 +57,9 @@ def db_connect():
     try:
         db_conn = psycopg2.connect(host=HOST, dbname=DBNAME, user=USER, password=PASSWORD, port = PORT)
         cursor = db_conn.cursor(cursor_factory = RealDictCursor)
-        logger.info(f"Connect [{DBNAME}] database successfully!")
+        logger.info(f"{inspect.stack()[0][3]}||Connect [{DBNAME}] database successfully!")
     except Exception as e:
-        logger.error(f"Encounter exception: {e}")
+        logger.error(f"{inspect.stack()[0][3]}||Encounter exception: {e}")
 
 
 def format_today(mode):
@@ -243,9 +244,9 @@ class Measurement_Text(Measurement):
         # self.head = ft.Text(self.label, text_align='center', style=ft.TextThemeStyle.TITLE_LARGE, weight=ft.FontWeight.W_400, color=ft.colors.BLACK)
         style_textfield = dict(
             dense=True, 
-            height=40, 
-            cursor_height=20, 
-            content_padding = 10, 
+            height=40*FONT_SIZE_FACTOR+5, 
+            cursor_height=20*FONT_SIZE_FACTOR, 
+            content_padding = 10*FONT_SIZE_FACTOR, 
             expand=True
         )
         if len(self.item_list) == 1:
@@ -480,11 +481,11 @@ class Form(ft.Tab): #目的是擴增Tab的功能
             exists = cursor.fetchone()['exists']
         except Exception as error:
             db_conn.rollback()
-            logger.error(f"Table[{self.label}] Error in detect table existence: {error}")
+            logger.error(f"{inspect.stack()[0][3]}||Table[{self.label}] Error in detect table existence: {error}")
             return False
 
         if exists == False: #Table不存在
-            logger.info(f"Table[{self.label}] NOT exists! Building...")
+            logger.info(f"{inspect.stack()[0][3]}||Table[{self.label}] NOT exists! Building...")
             # 組合需要的欄位
             other_columns = ''
             for measurement in self.measurement_list:
@@ -507,12 +508,12 @@ class Form(ft.Tab): #目的是擴增Tab的功能
                 cursor.execute(query)
                 db_conn.commit()
             except Exception as error:
-                logger.error(f"Table[{self.label}] Error in transaction(CREATE TABLE) and rollback: {error}")
+                logger.error(f"{inspect.stack()[0][3]}||Table[{self.label}] Error in transaction(CREATE TABLE) and rollback: {error}")
                 db_conn.rollback()
                 return False
         
         else: #Table已存在
-            logger.info(f"Table[{self.label}] Exists!")
+            logger.info(f"{inspect.stack()[0][3]}||Table[{self.label}] Exists!")
             # 只需要取得一筆就能透過cursor.description取得column names
             query = f''' SELECT * FROM "{self.label}" LIMIT 1 ''' 
             cursor.execute(query)
@@ -524,9 +525,9 @@ class Form(ft.Tab): #目的是擴增Tab的功能
             new_column_names = set(self.db_column_names)
             diff = new_column_names - old_column_names
             if len(diff) ==0:
-                logger.info(f"Table[{self.label}] NO NEED FOR ADDING COLUMN!")
+                logger.info(f"{inspect.stack()[0][3]}||Table[{self.label}] NO NEED FOR ADDING COLUMN!")
             else:
-                logger.info(f"Table[{self.label}] ADDING COLUMN[{len(diff)}]:{diff}")
+                logger.info(f"{inspect.stack()[0][3]}||Table[{self.label}] ADDING COLUMN[{len(diff)}]:{diff}")
                 # 將集合差值的column names搭配data type形成query => "{column_name}"使用雙引號: case-sensitive 
                 add_columns = ''
                 for measurement in self.measurement_list:
@@ -542,7 +543,7 @@ class Form(ft.Tab): #目的是擴增Tab的功能
                     cursor.execute(query)
                     db_conn.commit()
                 except Exception as error:
-                    logger.error(f"Table[{self.label}] Error in transaction(ALTER TABLE) and rollback: {error}")
+                    logger.error(f"{inspect.stack()[0][3]}||Table[{self.label}] Error in transaction(ALTER TABLE) and rollback: {error}")
                     db_conn.rollback()
                     return False
         return True
@@ -551,7 +552,7 @@ class Form(ft.Tab): #目的是擴增Tab的功能
     def db_save(self, patient_hisno, *args, **kwargs):
         patient_name = kwargs.get('patient_name', None)
         values_dict = self.db_values_dict
-
+        
         # 如果沒有資料輸入(空白text or unchecked checkbox)就不送資料庫
         if self.data_exist(values_dict) == False:
             return None
@@ -571,20 +572,38 @@ class Form(ft.Tab): #目的是擴增Tab的功能
             }
         )
 
-        # 建立query
-        query = SQL("insert into {table} ({fields}) values ({values})").format(
-            table = Identifier(self.label),
-            fields = SQL(', ').join(map(Identifier, column_names)),
-            values = SQL(', ').join(map(Placeholder, column_names))
-        )
+        # psycopg parameterized SQL 因為防範SQL injection不支持欄位名稱有'%','(',')'
+        # try:
+        #     # 建立query
+        #     query = SQL("insert into {table} ({fields}) values ({values})").format(
+        #         table = Identifier(self.label),
+        #         fields = SQL(', ').join(map(Identifier, column_names)),
+        #         values = SQL(', ').join(map(Placeholder, column_names))
+        #     )
+        # except Exception as e:
+        #     print(e)
+        
+        # 自製query
+        fields = ""
+        values = ""
+        for column in column_names:
+            if (values_dict[column] != None) and (values_dict[column] != ''): # None 和 空字串不能直接放入SQL內
+                fields = fields + f'"{column}", '
+                if type(values_dict[column]) == str:
+                    values = values + f"'{values_dict[column]}', "
+                else:
+                    values = values + f"{values_dict[column]}, "
+        query = f'''INSERT INTO "{self.label}" ({fields.rstrip(', ')}) VALUES ({values.rstrip(', ')})'''
+        print(query)
 
         try:
-            cursor.execute(query, values_dict) #因為前面定義過有標籤的placeholder，可以傳入dictionary
+            #cursor.execute(query, values_dict) #因為前面定義過有標籤的placeholder，可以傳入dictionary
+            cursor.execute(query)
             db_conn.commit()
-            logger.info(f'Table[{self.label}] Saving query finished')
+            logger.debug(f'{inspect.stack()[0][3]}||Table[{self.label}]||Finish saving commit')
             return True
         except Exception as e:
-            logger.error(f"Table[{self.label}] Encounter exception: {e}")
+            logger.error(f"{inspect.stack()[0][3]}||Table[{self.label}]||Encounter exception: {e}")
             db_conn.rollback()
             return False
 
@@ -602,14 +621,14 @@ class Form(ft.Tab): #目的是擴增Tab的功能
         try:
             cursor.execute(query)
             row = cursor.fetchone()
-            logger.info(f'Table[{self.label}]|Patient[{patient_hisno}] Loading query finished')
+            logger.debug(f'Table[{self.label}]|Patient[{patient_hisno}] Loading query finished')
             if row is None: # 沒有資料就回傳None
                 return None
             self.data_set_value(dict(row)) # 設定measurement資料
             self.set_display(text=f"已擷取資料日期:{row[COLUMN_TIME_UPDATED].strftime('%Y-%m-%d %H:%M')}") # 顯示display:資料擷取日期
             return True
         except Exception as e:
-            logger.error(f"Table[{self.label}] Encounter exception: {e}")
+            logger.error(f"{inspect.stack()[0][3]}||Table[{self.label}]||Encounter exception: {e}")
             return False
 
 
@@ -659,37 +678,44 @@ class Forms(): #集合Form(Tab)，包裝存、取、清除功能
 
     # 按下存檔按鈕時會抓取病人資料
     def db_save(self, patient_hisno, *args, **kwargs): # 全部forms 儲存
+        total_res = True
+        error_forms = []
         for form in self.form_list:
             res = form.db_save(patient_hisno, *args, **kwargs)
             if res == None:
-                form.data_clear() # TODO 這行有甚麼用?
-                logger.info(f"{form.label}||{self.doctor_id}||{patient_hisno}||Skip writing to database")
+                logger.info(f"{inspect.stack()[0][3]}||Form[{form.label}]||{self.doctor_id}||{patient_hisno}||Skip saving")
+                form.data_clear() # 存完清除
             elif res == False:
-                logger.error(f"{form.label}||{self.doctor_id}||{patient_hisno}||Fail writing to database")
+                logger.error(f"{inspect.stack()[0][3]}||Form[{form.label}]||{self.doctor_id}||{patient_hisno}||Fail saving")
+                total_res = False
+                error_forms.append(form.label)
             else:
-                logger.info(f"{form.label}||{self.doctor_id}||{patient_hisno}||Finish writing to database")
+                logger.debug(f"{inspect.stack()[0][3]}||Form[{form.label}]||{self.doctor_id}||{patient_hisno}||Finish saving")
+                form.data_clear() # 存完清除
+        return total_res, error_forms
 
 
     def db_load_one(self, patient_hisno, tab_index, *args, **kwargs): # 讀取特定form
         res = self.form_list[tab_index].db_load(patient_hisno, *args, **kwargs)
         if res == None:
-            logger.info(f"{self.form_list[tab_index].label}||{self.doctor_id}||{patient_hisno}||Empty record")
+            logger.info(f"{inspect.stack()[0][3]}||{self.form_list[tab_index].label}||{self.doctor_id}||{patient_hisno}||Empty record")
         elif res == False:
-            logger.error(f"{self.form_list[tab_index].label}||{self.doctor_id}||{patient_hisno}||Fail reading from database")
+            logger.error(f"{inspect.stack()[0][3]}||{self.form_list[tab_index].label}||{self.doctor_id}||{patient_hisno}||Fail loading")
         else:
-            logger.info(f"{self.form_list[tab_index].label}||{self.doctor_id}||{patient_hisno}||Finish reading from database")
+            logger.debug(f"{inspect.stack()[0][3]}||{self.form_list[tab_index].label}||{self.doctor_id}||{patient_hisno}||Finish loading")
         
         return res # 回傳給GUI做notify
+
 
     def db_load_all(self, patient_hisno, *args, **kwargs): # 全部forms 讀取 => 暫時不用
         for form in self.form_list:
             res = form.db_load(patient_hisno, *args, **kwargs)
             if res == None:
-                logger.info(f"{form.label}||{self.doctor_id}||{patient_hisno}||Empty record")
+                logger.info(f"{inspect.stack()[0][3]}||{form.label}||{self.doctor_id}||{patient_hisno}||Empty record")
             elif res == False:
-                logger.error(f"{form.label}||{self.doctor_id}||{patient_hisno}||Fail reading from database")
+                logger.error(f"{inspect.stack()[0][3]}||{form.label}||{self.doctor_id}||{patient_hisno}||Fail loading")
             else:
-                logger.info(f"{form.label}||{self.doctor_id}||{patient_hisno}||Finish reading from database")
+                logger.debug(f"{inspect.stack()[0][3]}||{form.label}||{self.doctor_id}||{patient_hisno}||Finish loading")
 
 ########################## Basic
 # 客製化IOP按鈕
@@ -722,6 +748,7 @@ form_basic = Form(
         Measurement_Text('K(OS)', ['H','V']),
         iop,
         Measurement_Text('Cornea', multiline=True),
+        Measurement_Text('AC'),
         Measurement_Text('Lens'),
         Measurement_Text('Fundus', multiline=True),
         Measurement_Text('CDR'),
@@ -753,18 +780,38 @@ form_plasty = Form(
 form_dryeye = Form(
     label="DryEye",
     measurement_list=[
-        Measurement_Check('Symptom', ['photophobia','pain'], [130,70], compact=True),
-        Measurement_Check('History', ['Smoking','Hyperlipidemia'], [100,130], compact=True),
-        Measurement_Text('OSDI',''),
-        Measurement_Text('SPEED',''),
+        Measurement_Text('Question', ['OSDI', 'SPEED']),
         Measurement_Text('Shirmer'),
         Measurement_Text('TBUT'),
         Measurement_Text('NEI'),
-        Measurement_Check('Anterior displacement MCJ', ['OD','OS'], [70,70], compact=True),
+        Measurement_Check('MCJ_displacement', ['OD','OS'], [70,70], compact=True),
+        Measurement_Check('Telangiectasia', ['OD','OS'], [70,70], compact=True),
+        Measurement_Text('Meibum', multiline=True),
         Measurement_Text('Mei_EXP'),
-        Measurement_Text('Mei_NUM')
+        Measurement_Text('LLT'),
+        Measurement_Text('Lipidview', multiline=True),
+        Measurement_Check('Lab abnormal', ['SSA/B', 'ANA', 'ESR','RF', 'dsDNA'], [80,70,70,70,80],compact=True),
+        Measurement_Check('Symptom', ['dry','pain','photophobia','tearing','discharge'], [70, 70, 130, 100, 100], compact=True),
+        Measurement_Check('History', ['Smoking', 'Hyperlipidemia', 'Sjogren', 'Seborrheic', 'IPL', 'CATA', 'Refractive'], [100, 140, 100, 120, 60, 80, 120], compact=True),
+        Measurement_Text('Impression','', format_func=format_no_output)
     ]
 )
+
+# form_dryeye = Form(
+#     label="DryEye",
+#     measurement_list=[
+#         Measurement_Check('Symptom', ['photophobia','pain'], [130,70], compact=True),
+#         Measurement_Check('History', ['Smoking','Hyperlipidemia'], [100,130], compact=True),
+#         Measurement_Text('OSDI',''),
+#         Measurement_Text('SPEED',''),
+#         Measurement_Text('Shirmer'),
+#         Measurement_Text('TBUT'),
+#         Measurement_Text('NEI'),
+#         Measurement_Check('Anterior displacement MCJ', ['OD','OS'], [70,70], compact=True),
+#         Measurement_Text('Mei_EXP'),
+#         Measurement_Text('Mei_NUM')
+#     ]
+# )
 
 ########################## IVI
 iop = Measurement_Text('IOP', format_func=format_iop)
@@ -805,24 +852,22 @@ form_ivi = Form(
 )
 
 ########################## TEST
-form_test2 = Form(
-    label="Test",
-    measurement_list=[
-        iop,
-        Measurement_Text('test1'),
-        Measurement_Text('test2'),
-        Measurement_Check('IRF', ['OD','OS'], [70,70], compact=True),
-        Measurement_Check('cmt', ['OD','OS'], [70,70], compact=True),
-    ]
-)
+# form_test2 = Form(
+#     label="Test",
+#     measurement_list=[
+#         iop,
+#         Measurement_Text('test1'),
+#         Measurement_Text('test2'),
+#         Measurement_Check('IRF', ['OD','OS'], [70,70], compact=True),
+#         Measurement_Check('cmt', ['OD','OS'], [70,70], compact=True),
+#     ]
+# )
 ########################## MERGE
 db_conn = None
 cursor = None
 
-if TEST_MODE:
-    forms = Forms([form_dryeye, form_ivi, form_plasty])
-else:
-    forms = Forms([form_dryeye, form_ivi, form_plasty]) # 註冊使用的form
+
+forms = Forms([form_dryeye, form_basic, form_ivi, form_plasty]) # 註冊使用的form
 
 if __name__ == '__main__': # load這個library來建立DB
     db_connect()
