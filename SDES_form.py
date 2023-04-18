@@ -8,7 +8,7 @@ import logging
 import inspect
 
 # CONST and ATTRIBUTES
-TEST_MODE = True
+TEST_MODE = False
 DATE_MODE = 1
 HOST = '10.53.70.143'
 if TEST_MODE:
@@ -157,7 +157,7 @@ def format_no_output(measurement:Measurement):
     return ''
 
 
-def format_textfield(measurement:Measurement):
+def format_text_tradition(measurement:Measurement):
     format_text = ''
     other_format_text = ''
     for i in measurement.body:
@@ -174,6 +174,21 @@ def format_textfield(measurement:Measurement):
     else:
         today = format_today(DATE_MODE)
         format_text = f"{today} {measurement.label}:{format_text.rstrip(', ')}"
+    return format_text
+
+# TODO 未完成
+def format_text_2score(measurement: Measurement):
+    format_text = ''
+    for item_name in measurement.body:
+        if measurement.body[item_name].value.strip() == '':
+            format_text = format_text + f"?/"
+        else:
+            format_text = format_text + f"{measurement.body[item_name].value.strip()}/"
+    if format_text == '?/?/':
+        return ''
+    else:
+        today = format_today(DATE_MODE)
+        format_text = f"{today} {measurement.label}:{format_text.rstrip('/')}"
     return format_text
 
 
@@ -299,7 +314,7 @@ class Measurement_Text(Measurement):
     
     def data_opdformat(self, e=None):
         if self.format_func == None:
-            format_text = format_textfield(self)
+            format_text = format_text_tradition(self)
         else:
             format_text = self.format_func(self) # EXO、IOP需要客製化
         return format_text
@@ -781,14 +796,14 @@ form_dryeye = Form(
     label="DryEye",
     measurement_list=[
         Measurement_Text('Question', ['OSDI', 'SPEED']),
-        Measurement_Text('Shirmer'),
-        Measurement_Text('TBUT'),
-        Measurement_Text('NEI'),
+        Measurement_Text('Shirmer', format_func=format_text_2score),
+        Measurement_Text('TBUT', format_func=format_text_2score),
+        Measurement_Text('NEI', format_func=format_text_2score),
         Measurement_Check('MCJ_displacement', ['OD','OS'], [70,70], compact=True),
         Measurement_Check('Telangiectasia', ['OD','OS'], [70,70], compact=True),
         Measurement_Text('Meibum', multiline=True),
-        Measurement_Text('Mei_EXP'),
-        Measurement_Text('LLT'),
+        Measurement_Text('Mei_EXP', format_func=format_text_2score),
+        Measurement_Text('LLT', format_func=format_text_2score),
         Measurement_Text('Lipidview', multiline=True),
         Measurement_Check('Lab abnormal', ['SSA/B', 'ANA', 'ESR','RF', 'dsDNA'], [80,70,70,70,80],compact=True),
         Measurement_Check('Symptom', ['dry','pain','photophobia','tearing','discharge'], [70, 70, 130, 100, 100], compact=True),
