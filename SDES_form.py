@@ -1,6 +1,6 @@
 import flet as ft
 import datetime
-from typing import Union, List
+from typing import Union, List, Tuple
 import psycopg2
 from psycopg2.sql import SQL, Identifier, Placeholder, Literal
 from psycopg2.extras import RealDictCursor
@@ -609,7 +609,6 @@ class Form(ft.Tab): #目的是擴增Tab的功能
                 else:
                     values = values + f"{values_dict[column]}, "
         query = f'''INSERT INTO "{self.label}" ({fields.rstrip(', ')}) VALUES ({values.rstrip(', ')})'''
-        print(query)
 
         try:
             #cursor.execute(query, values_dict) #因為前面定義過有標籤的placeholder，可以傳入dictionary
@@ -648,12 +647,22 @@ class Form(ft.Tab): #目的是擴增Tab的功能
 
 
 class Forms(): #集合Form(Tab)，包裝存、取、清除功能
-    def __init__(self, form_list: List[Form]) -> None:
-        self.form_list = form_list
+    def __init__(self, form_list: Tuple[Form]) -> None:
+        self.form_list_original = form_list # 儲存所有forms(不應變動)
+        self.form_list_selected = list(form_list) # 會因為選擇fomrs而變動
         self.doctor_id = None
         self.patient_hisno = None
         self.patient_name = None
     
+
+    def set_form_list_selected(self, form_names: List[str]):
+        tmp_list = []
+        for form in self.form_list_original:
+            if form.label in form_names:
+                tmp_list.append(form)
+        self.form_list_selected = tmp_list
+
+
     # def data_set_value(self, values_dict):
     #     pass
 
@@ -663,31 +672,31 @@ class Forms(): #集合Form(Tab)，包裝存、取、清除功能
 
     def set_doctor_id(self, doctor_id, *args):
         self.doctor_id = doctor_id
-        for form in self.form_list:
+        for form in self.form_list_selected:
             form.set_doctor_id(doctor_id=doctor_id)
 
 
     def set_patient_data(self, patient_hisno, patient_name, *args):
         self.patient_hisno = patient_hisno
         self.patient_name = patient_name
-        for form in self.form_list:
+        for form in self.form_list_selected:
             form.set_patient_data(patient_hisno=patient_hisno, patient_name=patient_name)
 
 
     def data_opdformat(self, e=None):
         form_text = ''
-        for form in self.form_list:
+        for form in self.form_list_selected:
             form_text = form_text + form.data_opdformat()
         return form_text
 
 
     def data_clear(self, e=None): # 全部forms 清除
-        for form in self.form_list:
+        for form in self.form_list_selected:
             form.data_clear()
 
 
     def db_migrate(self): # 全部forms migrate
-        for form in self.form_list:
+        for form in self.form_list_selected:
             form.db_migrate()
     
 
@@ -695,7 +704,7 @@ class Forms(): #集合Form(Tab)，包裝存、取、清除功能
     def db_save(self, patient_hisno, *args, **kwargs): # 全部forms 儲存
         total_res = True
         error_forms = []
-        for form in self.form_list:
+        for form in self.form_list_selected:
             res = form.db_save(patient_hisno, *args, **kwargs)
             if res == None:
                 logger.info(f"{inspect.stack()[0][3]}||Form[{form.label}]||{self.doctor_id}||{patient_hisno}||Skip saving")
@@ -711,19 +720,19 @@ class Forms(): #集合Form(Tab)，包裝存、取、清除功能
 
 
     def db_load_one(self, patient_hisno, tab_index, *args, **kwargs): # 讀取特定form
-        res = self.form_list[tab_index].db_load(patient_hisno, *args, **kwargs)
+        res = self.form_list_selected[tab_index].db_load(patient_hisno, *args, **kwargs)
         if res == None:
-            logger.info(f"{inspect.stack()[0][3]}||{self.form_list[tab_index].label}||{self.doctor_id}||{patient_hisno}||Empty record")
+            logger.info(f"{inspect.stack()[0][3]}||{self.form_list_selected[tab_index].label}||{self.doctor_id}||{patient_hisno}||Empty record")
         elif res == False:
-            logger.error(f"{inspect.stack()[0][3]}||{self.form_list[tab_index].label}||{self.doctor_id}||{patient_hisno}||Fail loading")
+            logger.error(f"{inspect.stack()[0][3]}||{self.form_list_selected[tab_index].label}||{self.doctor_id}||{patient_hisno}||Fail loading")
         else:
-            logger.debug(f"{inspect.stack()[0][3]}||{self.form_list[tab_index].label}||{self.doctor_id}||{patient_hisno}||Finish loading")
+            logger.debug(f"{inspect.stack()[0][3]}||{self.form_list_selected[tab_index].label}||{self.doctor_id}||{patient_hisno}||Finish loading")
         
         return res # 回傳給GUI做notify
 
 
     def db_load_all(self, patient_hisno, *args, **kwargs): # 全部forms 讀取 => 暫時不用
-        for form in self.form_list:
+        for form in self.form_list_selected:
             res = form.db_load(patient_hisno, *args, **kwargs)
             if res == None:
                 logger.info(f"{inspect.stack()[0][3]}||{form.label}||{self.doctor_id}||{patient_hisno}||Empty record")
@@ -881,17 +890,9 @@ form_ivi = Form(
 db_conn = None
 cursor = None
 
-
-forms = Forms([form_dryeye, form_basic, form_ivi, form_plasty]) # 註冊使用的form
+form_list_tuples = (form_dryeye, form_basic, form_ivi, form_plasty) # 不應該被變更的所有form_list
+forms = Forms(form_list_tuples) # 初始化註冊所有forms
 
 if __name__ == '__main__': # load這個library來建立DB
     db_connect()
     forms.db_migrate()
-
-# finally:
-#     # 斷開資料庫的連線
-#     db_conn.close()
-
-# TESTING
-# f= init('4123','123456789','sss')
-# f.form_list[0].db_migrate()

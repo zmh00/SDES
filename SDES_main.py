@@ -192,76 +192,84 @@ def main(page: Page):
         time.sleep(delay)
 
 
-    def setting_submit_initial(e=None):
+    def setting_form_submit(e=None):
         '''
-        設定doctorid，用於初次登入
+        設定doctorid+forms，用於初次登入
         '''
-        AllForm.set_doctor_id(doctor_id_viewdoctorid.value)
-        if doctor_id_viewdoctorid.value.strip() != '':
-            custom_title.value = f"[DOC:{doctor_id_viewdoctorid.value}]"
-            doctor_id_viewall.value = doctor_id_viewdoctorid.value
+        # 設定doctor id
+        if setting_form_doctorid.value.strip() != '':
+            AllForm.set_doctor_id(setting_form_doctorid.value)
+            custom_title.value = f"[DOC:{setting_form_doctorid.value}]"
+            setting_connection_doctorid.value = setting_form_doctorid.value
         
-        # 將沒有被選到的forms移除
-        if forms_selection_all.value != True:
-            for control in forms_selection.controls:
-                if control.value == False:
-                    for i, form in enumerate(SDES_form.forms.form_list):
-                        if form.label == control.label:
-                            del SDES_form.forms.form_list[i]
+        # 將被選到的forms加入
+        forms_selected = []
+        for control in setting_form_checkbox.controls:
+            if control.value == True:
+                forms_selected.append(control.label)
+        SDES_form.forms.set_form_list_selected(forms_selected)
+        tabs.tabs = SDES_form.forms.form_list_selected
+        
+        # 設定日期形式
+        SDES_form.DATE_MODE = setting_form_datemode.value
 
         view_pop()
         test_db()
 
     
-    def setting_submit_connection(e=None):
+    def setting_connection_submit(e=None):
         '''
         設定連線參數
         '''
-        AllForm.set_doctor_id(doctor_id_viewall.value)
-        custom_title.value = f"[DOC:{doctor_id_viewall.value}]"
-        SDES_form.DATE_MODE = date_mode.value
-        SDES_form.HOST = host.value
-        SDES_form.PORT = port.value
-        SDES_form.DBNAME = dbname.value
-        SDES_form.USER = user.value
-        SDES_form.PASSWORD = psw.value
+        # 設定doctor id
+        if setting_connection_doctorid.value.strip() != '':
+            AllForm.set_doctor_id(setting_connection_doctorid.value)
+            custom_title.value = f"[DOC:{setting_connection_doctorid.value}]"
+            setting_form_doctorid.value = setting_connection_doctorid.value
+        
+        # 設定連線參數
+        SDES_form.HOST = setting_connection_host.value
+        SDES_form.PORT = setting_connection_port.value
+        SDES_form.DBNAME = setting_connection_dbname.value
+        SDES_form.USER = setting_connection_user.value
+        SDES_form.PASSWORD = setting_connection_psw.value
         # SDES_form.FONT_SIZE_FACTOR = int(font_size_slider.value) / 100
+
         view_pop()
         test_db()
 
 
-    def setting_forms_checkall(e=None):
+    def setting_form_checkall(e=None):
         '''
         勾選或取消所有forms時會一次設定其他checkbox
         '''
-        if forms_selection_all.value == True:
-            for control in forms_selection.controls:
+        if setting_form_allbox.value == True:
+            for control in setting_form_checkbox.controls:
                 control.value = True
-            forms_selection.update()
+            setting_form_checkbox.update()
         else:
-            for control in forms_selection.controls:
+            for control in setting_form_checkbox.controls:
                 control.value = False
-            forms_selection.update()
+            setting_form_checkbox.update()
 
     
-    def setting_forms_uncheckall(e=None):
+    def setting_form_uncheckall(e=None):
         '''
         有任一checkbox uncheck要uncheck activate all
         '''
-        if forms_selection_all.value == True and e.control.value == False:
-            forms_selection_all.value = False
-            forms_selection_all.update()
+        if setting_form_allbox.value == True and e.control.value == False:
+            setting_form_allbox.value = False
+            setting_form_allbox.update()
 
 
     # 系統設定 # TODO 需要重構
-    forms_selection_all = ft.Checkbox(label="Activate ALL Forms", value=True, height=25, width=200, on_change=setting_forms_checkall)
-    forms_selection = ft.Row(
-        controls=[ft.Checkbox(label=form.label, value=True, height=25, width=200, on_change=setting_forms_uncheckall) for form in SDES_form.forms.form_list],
+    setting_form_allbox = ft.Checkbox(label="Activate ALL Forms", value=True, height=25, width=200, on_change=setting_form_checkall)
+    setting_form_checkbox = ft.Row(
+        controls=[ft.Checkbox(label=form.label, value=True, height=25, width=200, on_change=setting_form_uncheckall) for form in SDES_form.forms.form_list_original],
         wrap=True
     )
-    doctor_id_viewdoctorid = ft.TextField(label="Doctor ID", hint_text="Please enter short code of doctor ID(EX:4123)", dense=True, height=45, on_submit=setting_submit_initial, autofocus=True)
-    doctor_id_viewall = ft.TextField(label="Doctor ID", hint_text="Please enter short code of doctor ID(EX:4123)", dense=True, height=45, on_submit=setting_submit_connection, autofocus=True)
-    date_mode = ft.Dropdown(
+    setting_form_doctorid = ft.TextField(label="Doctor ID", hint_text="Please enter short code of doctor ID(EX:4123)", dense=True, height=45, on_submit=setting_form_submit, autofocus=True)
+    setting_form_datemode = ft.Dropdown(
         options=[
             ft.dropdown.Option(key=1, text='西元紀年'),
             ft.dropdown.Option(key=2, text='民國紀年'),
@@ -269,11 +277,19 @@ def main(page: Page):
         ],
         dense=True, height=45, content_padding = 10, value=1
     )
-    host = ft.TextField(label="HOST IP", value=SDES_form.HOST, dense=True, height=45)
-    port = ft.TextField(label="PORT", value=SDES_form.PORT, dense=True, height=45)
-    dbname = ft.TextField(label="DB NAME", value=SDES_form.DBNAME, dense=True, height=45)
-    user = ft.TextField(label="USER NAME", value=SDES_form.USER, dense=True, height=45)
-    psw = ft.TextField(label="PASSWORD", value=SDES_form.PASSWORD ,password=True, dense=True, height=45)
+    
+    setting_connection_doctorid = ft.TextField(label="Doctor ID", hint_text="Please enter short code of doctor ID(EX:4123)", dense=True, height=45, on_submit=setting_connection_submit, autofocus=True)
+    setting_connection_host = ft.TextField(label="HOST IP", value=SDES_form.HOST, dense=True, height=45)
+    setting_connection_port = ft.TextField(label="PORT", value=SDES_form.PORT, dense=True, height=45)
+    setting_connection_dbname = ft.TextField(label="DB NAME", value=SDES_form.DBNAME, dense=True, height=45)
+    setting_connection_user = ft.TextField(label="USER NAME", value=SDES_form.USER, dense=True, height=45)
+    setting_connection_psw = ft.TextField(label="PASSWORD", value=SDES_form.PASSWORD ,password=True, dense=True, height=45)
+    
+    authorship = ft.Row(
+        controls = [ft.Text("ZMH © 2023", style=ft.TextThemeStyle.BODY_SMALL, weight=ft.FontWeight.BOLD)],
+        alignment=ft.MainAxisAlignment.CENTER,
+    )
+
     # TODO 無法透過更新數值調整元件大小 => 需要重繪
     # font_size_slider = ft.Slider(min=20, max=100, divisions=4, label="{value}%", value=(SDES_form.FONT_SIZE_FACTOR*100), expand=True)
     # font_size_row = ft.Row(
@@ -283,13 +299,19 @@ def main(page: Page):
     #     ],
     # )
     
+    
 
-    def setting_show_initial(e=None):
+
+    def setting_form_show(e=None):
         '''
         Initial Settings: doctorid + forms selection
         '''
-        view_setting_doctorid = ft.View(
-            route = "/settings_initial",
+        setting_form_allbox.on_change = setting_form_checkall
+        for control in setting_form_checkbox.controls:
+            control.on_change = setting_form_uncheckall
+            
+        view_setting_form = ft.View(
+            route = "/setting_initial",
             appbar=ft.AppBar( 
                 title=ft.Row([
                         ft.WindowDragArea(ft.Container(ft.Text("Settings", size=15, weight=ft.FontWeight.BOLD), alignment=ft.alignment.center_left, padding=ft.padding.only(bottom=3)), expand=True),
@@ -302,11 +324,12 @@ def main(page: Page):
             controls=[
                 ft.Column(
                     controls=[
-                        doctor_id_viewdoctorid,
-                        forms_selection_all,
-                        forms_selection,
+                        setting_form_doctorid,
+                        setting_form_datemode,
+                        setting_form_allbox,
+                        setting_form_checkbox,
                         ft.Row(
-                            controls=[ft.ElevatedButton("Apply Settings", on_click=setting_submit_initial, expand=True)]
+                            controls=[ft.ElevatedButton("Apply Settings", on_click=setting_form_submit, expand=True)]
                         ), 
                     ], 
                     expand=True,
@@ -315,17 +338,16 @@ def main(page: Page):
                 authorship,
             ],
         )
-
-        page.views.append(view_setting_doctorid)
+        page.views.append(view_setting_form)
         page.update()
 
 
-    def setting_show_connection(e=None):
+    def setting_connection_show(e=None):
         '''
         Settings: connection
         '''
-        view_setting = ft.View(
-            route = "/settings_connection",
+        view_setting_connection = ft.View(
+            route = "/setting_connection",
             appbar=ft.AppBar( 
                 title=ft.Row([
                         ft.WindowDragArea(ft.Container(ft.Text("Settings: Connection", size=15, weight=ft.FontWeight.BOLD), alignment=ft.alignment.center_left, padding=ft.padding.only(bottom=3)), expand=True),
@@ -338,10 +360,10 @@ def main(page: Page):
             controls=[
                 ft.Column(
                     controls=[
-                        doctor_id_viewall, date_mode, host, port, dbname, user, psw, 
+                        setting_connection_doctorid, setting_connection_host, setting_connection_port, setting_connection_dbname, setting_connection_user, setting_connection_psw, 
                         # font_size_row,
                         ft.Row(
-                            controls=[ft.ElevatedButton("Apply Settings", on_click=setting_submit_connection, expand=True)]
+                            controls=[ft.ElevatedButton("Apply Settings", on_click=setting_connection_submit, expand=True)]
                         ),
                     ], 
                     expand=True,
@@ -350,8 +372,7 @@ def main(page: Page):
                 authorship
             ],
         )
-
-        page.views.append(view_setting)
+        page.views.append(view_setting_connection)
         page.update()
     
 
@@ -394,7 +415,7 @@ def main(page: Page):
 
     #################################################### Window settings
     # page.show_semantics_debugger = True # for testing
-    page.title = "Structured Data Entry System"
+    page.title = "病例結構化"
     page.window_width = 450
     page.window_height = 700
     page.window_resizable = True  # window is not resizable
@@ -417,8 +438,8 @@ def main(page: Page):
         title=ft.Row([
                 ft.WindowDragArea(ft.Container(custom_title, alignment=ft.alignment.center_left, padding=ft.padding.only(bottom=3)), expand=True),
                 # TODO 更改forms表單
-                # ft.IconButton(ft.icons.TEXT_SNIPPET_OUTLINED, on_click= setting_show_initial, icon_size = 20, tooltip = 'Forms'),
-                ft.IconButton(ft.icons.SETTINGS, on_click= setting_show_connection, icon_size = 20, tooltip = 'Connection'),
+                ft.IconButton(ft.icons.TEXT_SNIPPET_OUTLINED, on_click= setting_form_show, icon_size = 20, tooltip = 'Forms'),
+                ft.IconButton(ft.icons.SETTINGS, on_click= setting_connection_show, icon_size = 20, tooltip = 'Connection'),
                 ft.IconButton(ft.icons.CLOSE, on_click=lambda _: page.window_close(), icon_size = 20, tooltip = 'Close')
             ]),
         center_title=False,
@@ -485,10 +506,11 @@ def main(page: Page):
     tabs = ft.Tabs(
         selected_index = 0, # index從0開始
         animation_duration = 250,
-        tabs = AllForm.form_list,
+        tabs = AllForm.form_list_selected,
         expand = False,
         height = 435,
     )
+
     tabview = ft.Column( # 加上裝飾divider的tabs
         controls=[
             ft.Divider(height=0, thickness=3),
@@ -628,17 +650,14 @@ def main(page: Page):
             alignment=ft.MainAxisAlignment.CENTER,
         )
     ])
-    authorship = ft.Row(
-        controls = [ft.Text("ZMH © 2023", style=ft.TextThemeStyle.BODY_SMALL, weight=ft.FontWeight.BOLD)],
-        alignment=ft.MainAxisAlignment.CENTER,
-    )
+    
     #################################################### Final
     page.add(
          patient_column,
          tabview,
          submit,
     )
-    setting_show_initial()
+    setting_form_show()
     #################################################### Other functions
     patient_data_autoset(patient_hisno, patient_name, patient_hisno_manual, toggle_func=toggle_patient_data) # 這些函數會被開一個thread執行，所以不會阻塞
     
