@@ -96,17 +96,23 @@ def patient_data_autoset(patient_hisno: ft.TextButton, patient_name: ft.Text, pa
                 auto.Logger.WriteLine(f"Something wrong", auto.ConsoleColor.Red)
                 time.sleep(0.2)
 
+def set_S(text_input, location, replace):
+    return set_text('s', text_input, location, replace)
 
-def set_O(text_input, location=1, replace=0):
+def set_O(text_input, location, replace):
     return set_text('o', text_input, location, replace)
 
+def set_P(text_input, location, replace):
+    return set_text('p', text_input, location, replace)
 
 def set_text(panel, text_input:str, location, replace) -> str:
-    # panel = 's','o','p'
-    # location=0 從頭寫入 | location=1 從尾寫入
-    # replace=0 append | replace=1 取代原本的內容
-    # 現在預設插入的訊息會換行
-    # 門診系統解析換行是'\r\n'，如果只有\n會被忽視但仍可以被記錄 => 可以放入隱藏字元，不知道網頁版怎麼顯示?
+    '''
+    panel = 's','o','p'
+    location=0 從頭寫入 | location=1 從尾寫入
+    replace=0 append | replace=1 取代原本的內容
+    現在預設插入的訊息會換行
+    門診系統解析換行是'\r\n'，如果只有\n會被忽視但仍可以被記錄 => 可以放入隱藏字元，不知道網頁版怎麼顯示?
+    '''
     parameters = {
         's': ['PanelSubject', 'txtSoapSubject'],
         'o': ['PanelObject', 'txtSoapObject'],
@@ -211,7 +217,7 @@ def main(page: Page):
         tabs.tabs = SDES_form.forms.form_list_selected
         
         # 設定日期形式
-        SDES_form.DATE_MODE = setting_form_datemode.value
+        SDES_form.FORMAT_MODE = int(setting_form_formatmode.value)
 
         view_pop()
         test_db()
@@ -262,20 +268,22 @@ def main(page: Page):
             setting_form_allbox.update()
 
 
-    # 系統設定 # TODO 需要重構
-    setting_form_allbox = ft.Checkbox(label="Activate ALL Forms", value=True, height=25, width=200, on_change=setting_form_checkall)
+    # 系統設定
+    setting_form_allbox = ft.Checkbox(label="Activate ALL Forms", value=False, height=25, width=200, on_change=setting_form_checkall)
     setting_form_checkbox = ft.Row(
-        controls=[ft.Checkbox(label=form.label, value=True, height=25, width=200, on_change=setting_form_uncheckall) for form in SDES_form.forms.form_list_original],
+        controls=[ft.Checkbox(label=form.label, value=False, height=25, width=200, on_change=setting_form_uncheckall) for form in SDES_form.forms.form_list_original],
         wrap=True
     )
     setting_form_doctorid = ft.TextField(label="Doctor ID", hint_text="Please enter short code of doctor ID(EX:4123)", dense=True, height=45, on_submit=setting_form_submit, autofocus=True)
-    setting_form_datemode = ft.Dropdown(
+    setting_form_formatmode = ft.Dropdown(
         options=[
+            ft.dropdown.Option(key=-1, text='無任何日期'),
+            ft.dropdown.Option(key=0, text='區塊模式'),
             ft.dropdown.Option(key=1, text='西元紀年'),
             ft.dropdown.Option(key=2, text='民國紀年'),
             ft.dropdown.Option(key=3, text='西元紀年(2位數)'),
         ],
-        dense=True, height=45, content_padding = 10, value=1
+        dense=True, height=45, content_padding = 10, value=-1
     )
     
     setting_connection_doctorid = ft.TextField(label="Doctor ID", hint_text="Please enter short code of doctor ID(EX:4123)", dense=True, height=45, on_submit=setting_connection_submit, autofocus=True)
@@ -325,7 +333,7 @@ def main(page: Page):
                 ft.Column(
                     controls=[
                         setting_form_doctorid,
-                        setting_form_datemode,
+                        setting_form_formatmode,
                         setting_form_allbox,
                         setting_form_checkbox,
                         ft.Row(
@@ -415,7 +423,7 @@ def main(page: Page):
 
     #################################################### Window settings
     # page.show_semantics_debugger = True # for testing
-    page.title = "病例結構化"
+    page.title = "結構化輸入系統"
     page.window_width = 450
     page.window_height = 700
     page.window_resizable = True  # window is not resizable
@@ -437,7 +445,6 @@ def main(page: Page):
         leading_width=10,
         title=ft.Row([
                 ft.WindowDragArea(ft.Container(custom_title, alignment=ft.alignment.center_left, padding=ft.padding.only(bottom=3)), expand=True),
-                # TODO 更改forms表單
                 ft.IconButton(ft.icons.TEXT_SNIPPET_OUTLINED, on_click= setting_form_show, icon_size = 20, tooltip = 'Forms'),
                 ft.IconButton(ft.icons.SETTINGS, on_click= setting_connection_show, icon_size = 20, tooltip = 'Connection'),
                 ft.IconButton(ft.icons.CLOSE, on_click=lambda _: page.window_close(), icon_size = 20, tooltip = 'Close')
@@ -576,14 +583,17 @@ def main(page: Page):
     def save_opd_db(e=None):
         patient = patient_data_check()
         if patient != False:
-            text = AllForm.data_opdformat()
+            # save to opd
+            format_dict = AllForm.data_opdformat()
             try:
-                set_O(text)
+                for region in format_dict:
+                    set_text(panel=region, text_input=format_dict[region], location=1, replace=0)
                 notify("完成資料寫入門診系統")
             except Exception as e:
                 SDES_form.logger.error(e)
                 notify("資料寫入門診系統失敗")
-            
+                
+            # save to db
             try:
                 res, error_forms = AllForm.db_save(**patient) # 傳入{'patient_hisno':..., 'patient_name':...,}
                 if res == False:
