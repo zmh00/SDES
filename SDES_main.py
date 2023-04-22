@@ -6,8 +6,76 @@ import subprocess
 import uiautomation as auto
 # forms listed in SDES_form
 import SDES_form
+import atexit
 
 PROCESS_NAME = 'vghtpe.dcr.win.exe'
+
+LATEST_URL= 'https://api.github.com/repos/zmh00/SDES/releases/latest'
+VERSION_TAG = 'v1.0.0'
+TARGET_FILE = 'SDES_main'
+
+
+def updater_github(version_tag: str, latest_url: str, target_file: str, mode='direct'):
+    '''
+    Update notification through comparison tag difference on Github release
+    - version_tag: the local version
+    - latest_url: github release API(https://api.github.com/repos/{owner}/{repo}/releases/latest)
+    - target_file: name for search in assets
+    - mode: 'browser'|'direct'. browser means open the browser link and download by the user in order to avoid antiviral alarm; direct means download by requests directly.
+    '''
+
+    # TODO 將requests函式庫改成Python原生庫並獨立釋出
+    import requests
+    import webbrowser
+    import ctypes # for notification dialog in windows, consider tkinter in cross-platform design
+
+    res = requests.get(url=latest_url)
+    res_json = res.json()
+    latest_version_tag = res_json['tag_name']
+    latest_assets = res_json['assets']
+
+    for asset in latest_assets:
+        if target_file in asset['name']:
+            browser_download_url = asset['browser_download_url']
+            target_full_name = asset['name']
+            break
+    
+    if version_tag < latest_version_tag: # check whether the local program is the latest with string comparison in python
+        print("Not the latest vesion!")
+        WS_EX_TOPMOST = 0x40000
+        windowTitle = "SDES Updater"
+
+        # open browser
+        if mode == 'browser':
+            # display a message box
+            message = "有新版的程式會透過瀏覽器下載"
+            ctypes.windll.user32.MessageBoxExW(None, message, windowTitle, WS_EX_TOPMOST)
+
+            print("Browser downloading...")
+            webbrowser.open(browser_download_url, new=2)
+
+        # download by requests
+        elif mode == 'direct':
+            # display a message box
+            message = "有新版的程式直接下載於同一文件夾內(需等待片刻)"
+            ctypes.windll.user32.MessageBoxExW(None, message, windowTitle, WS_EX_TOPMOST)
+
+            print("Direct downloading...")
+            res = requests.get(browser_download_url)
+            filename, extension = target_full_name.split('.') # split the filename 
+            filename = f'{filename}({latest_version_tag}).{extension}' # reset the file name and add version tag
+            with open(filename, 'wb') as f:
+                f.write(res.content)
+            
+            # display a message box
+            message = "已下載完成(於同一文件夾內)"
+            ctypes.windll.user32.MessageBoxExW(None, message, windowTitle, WS_EX_TOPMOST)
+
+        return False
+    else:
+        print("Already the latest version!")
+        return True
+
 
 def process_exists(process_name=PROCESS_NAME):
     '''
@@ -99,6 +167,7 @@ def patient_data_autoset(patient_hisno: ft.TextButton, patient_name: ft.Text, pa
                 auto.Logger.WriteLine(f"Something wrong", auto.ConsoleColor.Red)
                 time.sleep(0.2)
 
+
 def set_S(text_input, location, replace):
     return set_text('s', text_input, location, replace)
 
@@ -130,10 +199,9 @@ def set_text(panel, text_input:str, location, replace) -> str:
 
     with auto.UIAutomationInitializerInThread():
         window_soap = auto.WindowControl(searchDepth=1, AutomationId="frmSoap")
-        # window_soap = search_window(window_soap)
         if not window_soap.Exists():
             auto.Logger.WriteLine("No window frmSoap", auto.ConsoleColor.Red)
-            return "未找到SOAP視窗"
+            raise Exception("未找到SOAP視窗")
         else:
             edit_control = window_soap.PaneControl(searchDepth=1, AutomationId=parameters[panel][0]).EditControl(searchDepth=1, AutomationId=parameters[panel][1])
             if edit_control.Exists():
@@ -153,10 +221,10 @@ def set_text(panel, text_input:str, location, replace) -> str:
                     return "成功帶入門診系統"
                 except:
                     auto.Logger.WriteLine(f"Input failed!", auto.ConsoleColor.Red)
-                    return "帶入門診系統失敗"
+                    raise Exception("帶入門診系統失敗")
             else:
                 auto.Logger.WriteLine(f"No edit control", auto.ConsoleColor.Red)
-                return "No edit control"
+                raise Exception("No edit control")
 
 
         
@@ -597,7 +665,7 @@ def main(page: Page):
             else:
                 res = SDES_form.forms.db_load(patient_hisno=patient['patient_hisno']) # 讀取全部
             if len(res) !=0:
-                notify(f"讀取資料失敗:{res}")
+                notify(f"讀取資料失敗:{res}", delay=1.5)
             else:
                 notify("讀取資料成功")
 
@@ -613,12 +681,12 @@ def main(page: Page):
                 else:
                     res = SDES_form.forms.db_save(**patient)  # 傳入{'patient_hisno':..., 'patient_name':...,} # 儲存全部forms
                 if len(res) !=0:
-                    notify(f"資料寫入失敗:{res}")
+                    notify(f"資料寫入資料庫失敗:{res}", delay=1.5)
                 else:
-                    notify("資料寫入成功")
+                    notify("資料寫入資料庫成功")
             except Exception as e:
                 SDES_form.logger.error(e)
-                notify("資料寫入異常")
+                notify("資料寫入資料庫異常", delay=1.5)
 
 
     def save_opd_db(e=None):
@@ -628,11 +696,12 @@ def main(page: Page):
             format_dict = SDES_form.forms.data_opdformat()
             try:
                 for region in format_dict:
-                    set_text(panel=region, text_input=format_dict[region], location=1, replace=0)
+                    if format_dict[region] != '':
+                        set_text(panel=region, text_input=format_dict[region], location=1, replace=0)
                 notify("完成資料寫入門診系統")
             except Exception as e:
                 SDES_form.logger.error(e)
-                notify("資料寫入門診系統失敗")
+                notify("資料寫入門診系統失敗", delay=1.5)
 
         # 存入資料庫      
         save_db(patient=patient)
@@ -643,7 +712,7 @@ def main(page: Page):
             SDES_form.forms.data_clear()
             notify("已清除所有表格")
         except Exception as e:
-            notify("清除表格異常")
+            notify("清除表格異常", delay=1.5)
 
 
     ########################## submit
@@ -703,7 +772,18 @@ def main(page: Page):
     setting_form_show()
     #################################################### Other functions
     patient_data_autoset(patient_hisno, patient_name, patient_hisno_manual, toggle_func=toggle_patient_data, load_func=load_db) # 這些函數會被開一個thread執行，所以不會阻塞
-    
-ft.app(target=main)
-SDES_form.db_close()
-print(f"DB closing..")
+
+
+def close_db():
+    if SDES_form.db_conn != None:
+        SDES_form.db_close()
+        print(f"DB closing..")
+
+
+# 註冊當程式關閉前關閉DB連線
+atexit.register(close_db)
+
+# 確認是否為最新的版本
+is_latest = updater_github(version_tag=VERSION_TAG, latest_url=LATEST_URL, target_file=TARGET_FILE)
+if is_latest==True:
+    ft.app(target=main)
