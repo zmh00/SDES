@@ -56,7 +56,7 @@ def captureimage(control = None, postfix = ''):
     c.CaptureToImage(path)
 
 
-def patient_data_autoset(patient_hisno: ft.TextButton, patient_name: ft.Text, patient_hisno_manual: ft.TextField, toggle_func): # TODO refactor the parameters and structure
+def patient_data_autoset(patient_hisno: ft.TextButton, patient_name: ft.Text, patient_hisno_manual: ft.TextField, toggle_func, load_func): # TODO refactor the parameters and structure
     old_p_dict = None
     state = -1
     with auto.UIAutomationInitializerInThread():
@@ -83,6 +83,9 @@ def patient_data_autoset(patient_hisno: ft.TextButton, patient_name: ft.Text, pa
                         else:
                             patient_hisno.update()
                             patient_name.update()
+                        
+                        load_func()  # 讀取此病人單一或全部表單
+
                     else:
                         if state != 1: # 找過一樣的data
                             state = 1
@@ -204,7 +207,7 @@ def main(page: Page):
         '''
         # 設定doctor id
         if setting_form_doctorid.value.strip() != '':
-            AllForm.set_doctor_id(setting_form_doctorid.value)
+            SDES_form.forms.set_doctor_id(setting_form_doctorid.value)
             custom_title.value = f"[DOC:{setting_form_doctorid.value}]"
             setting_connection_doctorid.value = setting_form_doctorid.value
         
@@ -229,7 +232,7 @@ def main(page: Page):
         '''
         # 設定doctor id
         if setting_connection_doctorid.value.strip() != '':
-            AllForm.set_doctor_id(setting_connection_doctorid.value)
+            SDES_form.forms.set_doctor_id(setting_connection_doctorid.value)
             custom_title.value = f"[DOC:{setting_connection_doctorid.value}]"
             setting_form_doctorid.value = setting_connection_doctorid.value
         
@@ -293,6 +296,9 @@ def main(page: Page):
     setting_connection_user = ft.TextField(label="USER NAME", value=SDES_form.USER, dense=True, height=45)
     setting_connection_psw = ft.TextField(label="PASSWORD", value=SDES_form.PASSWORD ,password=True, dense=True, height=45)
     
+    setting_connection_savebutton = ft.Switch(label="Save ALL forms", value=True, expand=True)
+    setting_connection_loadbutton = ft.Switch(label="Load ALL forms", value=True, expand=True)
+
     authorship = ft.Row(
         controls = [ft.Text("ZMH © 2023", style=ft.TextThemeStyle.BODY_SMALL, weight=ft.FontWeight.BOLD)],
         alignment=ft.MainAxisAlignment.CENTER,
@@ -306,9 +312,6 @@ def main(page: Page):
     #         font_size_slider,
     #     ],
     # )
-    
-    
-
 
     def setting_form_show(e=None):
         '''
@@ -368,7 +371,10 @@ def main(page: Page):
             controls=[
                 ft.Column(
                     controls=[
-                        setting_connection_doctorid, setting_connection_host, setting_connection_port, setting_connection_dbname, setting_connection_user, setting_connection_psw, 
+                        setting_connection_doctorid, setting_connection_host, setting_connection_port, setting_connection_dbname, setting_connection_user, setting_connection_psw,
+                        ft.Row(
+                            controls=[setting_connection_loadbutton, setting_connection_savebutton]
+                        ),
                         # font_size_row,
                         ft.Row(
                             controls=[ft.ElevatedButton("Apply Settings", on_click=setting_connection_submit, expand=True)]
@@ -388,11 +394,11 @@ def main(page: Page):
         if e.alt and e.key == 'Q':
             save_opd_db(e)
         elif e.alt and e.key == 'A':
-            AllForm.data_clear()
+            SDES_form.forms.data_clear()
         elif e.alt and e.key == 'W':
             save_db(e)
         elif e.alt and e.key == 'S':
-            load_db_one(e)
+            load_db(e)
     
     # def route_change(route):
     #     page.views.clear()
@@ -509,11 +515,10 @@ def main(page: Page):
     )
 
     ########################## tab merge
-    AllForm = SDES_form.forms
     tabs = ft.Tabs(
         selected_index = 0, # index從0開始
         animation_duration = 250,
-        tabs = AllForm.form_list_selected,
+        tabs = SDES_form.forms.form_list_selected,
         expand = False,
         height = 435,
     )
@@ -553,26 +558,32 @@ def main(page: Page):
                 return_dict['patient_name'] = _patient_name
         return return_dict
 
-    def load_db_one(e=None):
+
+    def load_db(e=None):
         patient = patient_data_check()
         if patient != False:
-            res = AllForm.db_load_one(patient_hisno=patient['patient_hisno'], tab_index=tabs.selected_index)
-            if res ==  None:
-                notify("無過去資料可讀取")
-            elif res == False:
-                notify("讀取資料失敗")
-            elif res == True:
+            if setting_connection_loadbutton.value == False:
+                res = SDES_form.forms.db_load(patient_hisno=patient['patient_hisno'], tab_index=tabs.selected_index) # 讀取單一
+            else:
+                res = SDES_form.forms.db_load(patient_hisno=patient['patient_hisno']) # 讀取全部
+            if len(res) !=0:
+                notify(f"讀取資料失敗:{res}")
+            else:
                 notify("讀取資料成功")
-                # notify成功讀取 => 已經有display通知?
 
     
-    def save_db(e=None):
-        patient = patient_data_check()
+    def save_db(e=None, patient = None):
+        if patient == None:
+            patient = patient_data_check()
         if patient != False:
             try:
-                res, error_forms = AllForm.db_save(**patient) # 傳入{'patient_hisno':..., 'patient_name':...,}
-                if res == False:
-                    notify(f"資料寫入失敗:{error_forms}")
+                # 決定存一個或全部forms
+                if setting_connection_savebutton.value == False:
+                    res = SDES_form.forms.db_save(**patient, tab_index=tabs.selected_index) # 儲存單一forms
+                else:
+                    res = SDES_form.forms.db_save(**patient)  # 傳入{'patient_hisno':..., 'patient_name':...,} # 儲存全部forms
+                if len(res) !=0:
+                    notify(f"資料寫入失敗:{res}")
                 else:
                     notify("資料寫入成功")
             except Exception as e:
@@ -584,7 +595,7 @@ def main(page: Page):
         patient = patient_data_check()
         if patient != False:
             # save to opd
-            format_dict = AllForm.data_opdformat()
+            format_dict = SDES_form.forms.data_opdformat()
             try:
                 for region in format_dict:
                     set_text(panel=region, text_input=format_dict[region], location=1, replace=0)
@@ -592,22 +603,14 @@ def main(page: Page):
             except Exception as e:
                 SDES_form.logger.error(e)
                 notify("資料寫入門診系統失敗")
-                
-            # save to db
-            try:
-                res, error_forms = AllForm.db_save(**patient) # 傳入{'patient_hisno':..., 'patient_name':...,}
-                if res == False:
-                    notify(f"資料寫入失敗:{error_forms}")
-                else:
-                    notify("資料寫入成功")
-            except Exception as e:
-                SDES_form.logger.error(e)
-                notify("資料寫入異常")
+
+        # 存入資料庫      
+        save_db(patient=patient)
 
 
     def clear_forms(e=None):
         try:
-            AllForm.data_clear()
+            SDES_form.forms.data_clear()
             notify("已清除所有表格")
         except Exception as e:
             notify("清除表格異常")
@@ -654,7 +657,7 @@ def main(page: Page):
                     height = 30,
                     icon=ft.icons.ARROW_CIRCLE_UP_ROUNDED,
                     expand=True,
-                    on_click = load_db_one
+                    on_click = load_db
                 ),
             ],
             alignment=ft.MainAxisAlignment.CENTER,
@@ -669,7 +672,7 @@ def main(page: Page):
     )
     setting_form_show()
     #################################################### Other functions
-    patient_data_autoset(patient_hisno, patient_name, patient_hisno_manual, toggle_func=toggle_patient_data) # 這些函數會被開一個thread執行，所以不會阻塞
+    patient_data_autoset(patient_hisno, patient_name, patient_hisno_manual, toggle_func=toggle_patient_data, load_func=load_db) # 這些函數會被開一個thread執行，所以不會阻塞
     
 ft.app(target=main)
 SDES_form.db_close()

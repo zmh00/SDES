@@ -8,7 +8,7 @@ import logging
 import inspect
 
 # CONST and ATTRIBUTES
-TEST_MODE = True
+TEST_MODE = False
 FORMAT_MODE = 1
 # DATE_MODE = 1
 HOST = '10.53.70.143'
@@ -183,8 +183,6 @@ def format_exo(measurement):
         exo_os = measurement.body['OS'].value.strip()
     if measurement.body['PD'].value.strip() != '':
         exo_pd = measurement.body['PD'].value.strip()
-    if exo_od == '' and exo_os == '' and exo_pd == '': # TODO 這感覺後續不需要
-        return ''
     else:
         format_text = f"{measurement.label}:{exo_od}>--{exo_pd}--<{exo_os}"
         return format_text
@@ -231,24 +229,6 @@ class Measurement(ft.UserControl):
             self.ignore_exist_item_list.append(item_name)
 
 
-    # def add_before_build(self, data_row: dict, ignore_exist = False):
-    #     '''
-    #     增加元素要透過這函數:影響item_list和body內容
-    #     ignore_exist 可讓此項目不影響data_exist判斷 => 較不重要的項目
-    #     '''
-    #     for keys in data_row:
-    #         self.item_list.append(keys)
-    #         self.body[keys] = data_row[keys]
-    
-
-    # def add_after_build(self, data_row: dict, ignore_exist = False):
-    #     for keys in data_row:
-    #         self.item_list.append(keys)
-    #         self.body[keys] = data_row[keys]
-    #         self.row.controls.append(self.body[keys])
-    #     self.update()
-
-
     def data_set_value(self, values_dict):
         for item in self.item_list:
             if str(item).strip() == '': # 如果item是空字串
@@ -283,16 +263,19 @@ class Measurement(ft.UserControl):
                 if value != False:
                     exist = True
             else:
-                print(f"type:{type(value)}||value:{value}") # FIXME 測試用
+                logger.error(f"data_exist內部遇到未定義型態||type:{type(value)}||value:{value}")
 
         return exist
 
-    def data_opdformat(self, format_func, format_region): # 帶入門診病例的格式
-        # TODO 目前設計確認有無資料放在form內部，所以會傳入data_opdformat都是有資料的
+    def data_opdformat(self, format_func, format_region): 
+        '''
+        帶入門診病例的格式
+        目前設計確認有無資料放在form內部，所以會傳入data_opdformat都是有使用者輸入資料的
+        '''
         # 客製化格式
         format_text = format_func(self)
         
-        # 分類到指定的region，且訊息為list type
+        # 分類到指定的region('s','o','p')，format_text為list type
         return format_region, format_text
     
 
@@ -521,7 +504,7 @@ class Form(ft.Tab): #目的是擴增Tab的功能
         return None
 
 
-    def data_exist(self, values_dict: dict) -> bool:
+    def check_form_values_exist(self, values_dict: dict) -> bool:
         '''
         判斷傳入values_dict是否有值，針對不同類型的資料有不同判斷方式
         '''
@@ -548,13 +531,16 @@ class Form(ft.Tab): #目的是擴增Tab的功能
             measurement.data_return_default()
 
     def data_opdformat(self, e=None):
+        '''
+        form階層的格式化輸出，主要添加換行和時間模式，並排除沒有資料的欄位
+        '''
         format_dict = {
             's':[],
             'o':[],
             'p':[]
         }
         for measurement in self.measurement_list:
-            if measurement.data_exist:
+            if measurement.data_exist: # 確認有無資料決定是否納入
                 region, text = measurement.data_opdformat()
                 format_dict[region].append(text)
 
@@ -562,8 +548,6 @@ class Form(ft.Tab): #目的是擴增Tab的功能
         for region in format_dict:
             if len(format_dict[region]) !=0:
                 format_form[region] = format_merge(format_dict[region], form_name = self.label)
-
-        print(f"format_form:{format_form}") # FIXME 測試用
 
         return format_form
 
@@ -666,9 +650,8 @@ class Form(ft.Tab): #目的是擴增Tab的功能
         values_dict = self.db_values_dict
         
         # 如果沒有資料輸入(空白text or unchecked checkbox)就不送資料庫
-        # TODO 確認有沒有資料 
-        # FIXME
-        if self.data_exist(values_dict) == False:
+        # TODO 確認有沒有資料的方式是否改成透過measurement.data_exist?
+        if self.check_form_values_exist(values_dict) == False:
             return None
         
         # 有種可能是有名字一樣的measurement => column_names會多於values_dict
@@ -713,15 +696,15 @@ class Form(ft.Tab): #目的是擴增Tab的功能
             #cursor.execute(query, values_dict) #因為前面定義過有標籤的placeholder，可以傳入dictionary
             cursor.execute(query)
             db_conn.commit()
-            logger.debug(f'{inspect.stack()[0][3]}||Table[{self.label}]||Finish saving commit')
+            # logger.debug(f'{inspect.stack()[0][3]}||Form[{self.label}]||Finish saving commit')
             return True
         except Exception as e:
-            logger.error(f"{inspect.stack()[0][3]}||Table[{self.label}]||Encounter exception: {e}")
+            logger.error(f"{inspect.stack()[0][3]}||Form[{self.label}]||Encounter exception: {e}")
             db_conn.rollback()
             return False
 
     
-    def db_load(self, patient_hisno, *args, **kwargs):
+    def db_load(self, patient_hisno, **kwargs):
         # 抓取符合醫師+病人的最新一筆資料
         query = SQL("SELECT * FROM {table} WHERE {doc}={doctor_id} AND {hisno}={patient_hisno} ORDER BY id DESC NULLS LAST LIMIT 1").format(
             table = Identifier(self.label),
@@ -734,8 +717,9 @@ class Form(ft.Tab): #目的是擴增Tab的功能
         try:
             cursor.execute(query)
             row = cursor.fetchone()
-            logger.debug(f'Table[{self.label}]|Patient[{patient_hisno}] Loading query finished')
+            # logger.debug(f'Table[{self.label}]|Patient[{patient_hisno}] Loading query finished')
             if row is None: # 沒有資料就回傳None
+                self.set_display(text="無資料可擷取")
                 return None
             self.data_set_value(dict(row)) # 設定measurement資料
             self.set_display(text=f"已擷取資料日期:{row[COLUMN_TIME_UPDATED].strftime('%Y-%m-%d %H:%M')}") # 顯示display:資料擷取日期
@@ -808,49 +792,71 @@ class Forms(): #集合Form(Tab)，包裝存、取、清除功能
         for form in self.form_list_selected:
             form.db_migrate()
     
-    def db_save_one(self, patient_hisno, *args, **kwargs): # 單一form儲存
-        pass
 
     # 按下存檔按鈕時會抓取病人資料
-    def db_save(self, patient_hisno, *args, **kwargs): # 全部forms儲存
-        total_res = True
-        error_forms = []
-        for form in self.form_list_selected:
-            res = form.db_save(patient_hisno, *args, **kwargs)
+    def db_save(self, patient_hisno, tab_index = None, **kwargs): # 儲存form:整合儲存單一與全部
+        error_list = []
+        if tab_index == None: # 全部
+            for form in self.form_list_selected:
+                res = form.db_save(patient_hisno, **kwargs)
+                if res == None:
+                    logger.info(f"{inspect.stack()[0][3]}||Forms[{form.label}]||{self.doctor_id}||{patient_hisno}||Skip saving")
+                    form.data_clear() # 存完清除
+                elif res == False:
+                    logger.error(f"{inspect.stack()[0][3]}||Forms[{form.label}]||{self.doctor_id}||{patient_hisno}||Fail saving")
+                    error_list.append(form.label)
+                else:
+                    logger.debug(f"{inspect.stack()[0][3]}||Forms[{form.label}]||{self.doctor_id}||{patient_hisno}||Finish saving")
+                    form.data_clear() # 存完清除
+        else: # 單一
+            res = self.form_list_selected[tab_index].db_save(patient_hisno, **kwargs)
             if res == None:
-                logger.info(f"{inspect.stack()[0][3]}||Form[{form.label}]||{self.doctor_id}||{patient_hisno}||Skip saving")
-                form.data_clear() # 存完清除
+                logger.info(f"{inspect.stack()[0][3]}||Forms[{self.form_list_selected[tab_index].label}]||{self.doctor_id}||{patient_hisno}||Skip saving")
+                self.form_list_selected[tab_index].data_clear() # 存完清除
             elif res == False:
-                logger.error(f"{inspect.stack()[0][3]}||Form[{form.label}]||{self.doctor_id}||{patient_hisno}||Fail saving")
-                total_res = False
-                error_forms.append(form.label)
+                logger.error(f"{inspect.stack()[0][3]}||Forms[{self.form_list_selected[tab_index].label}]||{self.doctor_id}||{patient_hisno}||Fail saving")
+                error_list.append(self.form_list_selected[tab_index].label)
             else:
-                logger.debug(f"{inspect.stack()[0][3]}||Form[{form.label}]||{self.doctor_id}||{patient_hisno}||Finish saving")
-                form.data_clear() # 存完清除
-        return total_res, error_forms
-
-
-    def db_load_one(self, patient_hisno, tab_index, *args, **kwargs): # 讀取特定form
-        res = self.form_list_selected[tab_index].db_load(patient_hisno, *args, **kwargs)
-        if res == None:
-            logger.info(f"{inspect.stack()[0][3]}||{self.form_list_selected[tab_index].label}||{self.doctor_id}||{patient_hisno}||Empty record")
-        elif res == False:
-            logger.error(f"{inspect.stack()[0][3]}||{self.form_list_selected[tab_index].label}||{self.doctor_id}||{patient_hisno}||Fail loading")
-        else:
-            logger.debug(f"{inspect.stack()[0][3]}||{self.form_list_selected[tab_index].label}||{self.doctor_id}||{patient_hisno}||Finish loading")
+                logger.debug(f"{inspect.stack()[0][3]}||Forms[{self.form_list_selected[tab_index].label}]||{self.doctor_id}||{patient_hisno}||Finish saving")
+                self.form_list_selected[tab_index].data_clear() # 存完清除
         
-        return res # 回傳給GUI做notify
+        return error_list
 
 
-    def db_load_all(self, patient_hisno, *args, **kwargs): # 全部forms 讀取 => 暫時不用
-        for form in self.form_list_selected:
-            res = form.db_load(patient_hisno, *args, **kwargs)
+    def db_load(self, patient_hisno, tab_index = None, **kwargs): # 讀取form:整合讀取單一與全部
+        error_list = []
+        if tab_index == None: # 全部
+            for form in self.form_list_selected:
+                res = form.db_load(patient_hisno, **kwargs)
+                if res == None:
+                    logger.info(f"{inspect.stack()[0][3]}||{form.label}||{self.doctor_id}||{patient_hisno}||Empty record")
+                elif res == False:
+                    logger.error(f"{inspect.stack()[0][3]}||{form.label}||{self.doctor_id}||{patient_hisno}||Fail loading")
+                    error_list.append(form.label)
+                else:
+                    logger.debug(f"{inspect.stack()[0][3]}||{form.label}||{self.doctor_id}||{patient_hisno}||Finish loading")
+        else: # 單一
+            res = self.form_list_selected[tab_index].db_load(patient_hisno, **kwargs)
             if res == None:
-                logger.info(f"{inspect.stack()[0][3]}||{form.label}||{self.doctor_id}||{patient_hisno}||Empty record")
+                logger.info(f"{inspect.stack()[0][3]}||{self.form_list_selected[tab_index].label}||{self.doctor_id}||{patient_hisno}||Empty record")
             elif res == False:
-                logger.error(f"{inspect.stack()[0][3]}||{form.label}||{self.doctor_id}||{patient_hisno}||Fail loading")
+                logger.error(f"{inspect.stack()[0][3]}||{self.form_list_selected[tab_index].label}||{self.doctor_id}||{patient_hisno}||Fail loading")
+                error_list.append(self.form_list_selected[tab_index].label)
             else:
-                logger.debug(f"{inspect.stack()[0][3]}||{form.label}||{self.doctor_id}||{patient_hisno}||Finish loading")
+                logger.debug(f"{inspect.stack()[0][3]}||{self.form_list_selected[tab_index].label}||{self.doctor_id}||{patient_hisno}||Finish loading")
+            
+        return error_list # 回傳給GUI做notify
+
+
+    # def db_load_all(self, patient_hisno, *args, **kwargs): # 全部forms 讀取 => 暫時不用
+    #     for form in self.form_list_selected:
+    #         res = form.db_load(patient_hisno, *args, **kwargs)
+    #         if res == None:
+    #             logger.info(f"{inspect.stack()[0][3]}||{form.label}||{self.doctor_id}||{patient_hisno}||Empty record")
+    #         elif res == False:
+    #             logger.error(f"{inspect.stack()[0][3]}||{form.label}||{self.doctor_id}||{patient_hisno}||Fail loading")
+    #         else:
+    #             logger.debug(f"{inspect.stack()[0][3]}||{form.label}||{self.doctor_id}||{patient_hisno}||Finish loading")
 
 
 ########################## Basic
