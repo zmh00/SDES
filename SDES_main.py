@@ -189,12 +189,18 @@ def main(page: Page):
         page.update()
 
     def toggle_patient_data(e=None):
+        '''
+        Switch between automatic and manual patient data retrieval
+        '''
         patient_hisno.visible = not patient_hisno.visible
         patient_name.visible = not patient_name.visible
         patient_row_manual.visible = not patient_row_manual.visible
         patient_column.update()
         
     def notify(text: str, delay = 0.2):
+        '''
+        Notify message with snack_bar at bottom
+        '''
         page.snack_bar.content = ft.Text(text)
         page.snack_bar.open = True
         page.update()
@@ -203,7 +209,8 @@ def main(page: Page):
 
     def setting_form_submit(e=None):
         '''
-        設定doctorid+forms，用於初次登入
+        The on_click event of apply settings button in setting_form
+        Set the doctorid and forms selection. Used for initial login.
         '''
         # 設定doctor id
         if setting_form_doctorid.value.strip() != '':
@@ -228,7 +235,8 @@ def main(page: Page):
     
     def setting_connection_submit(e=None):
         '''
-        設定連線參數
+        The on_click event of apply settings button in setting_connection
+        Set the connection parameters
         '''
         # 設定doctor id
         if setting_connection_doctorid.value.strip() != '':
@@ -270,6 +278,25 @@ def main(page: Page):
             setting_form_allbox.value = False
             setting_form_allbox.update()
 
+
+    def setting_connection_db_migrate(e=None):
+        '''
+        The on_click event of migration database button in setting_connection
+        '''
+        SDES_form.db_connect()
+        res_string = SDES_form.forms.db_migrate()
+        page.dialog = migration_dlg
+        migration_dlg.content.value = res_string
+        migration_dlg.open = True
+        page.update()
+
+
+    # migration dialog
+    migration_dlg = ft.AlertDialog(
+        title=ft.Text("Migration response"),
+        content=ft.Text(),
+        on_dismiss=lambda e: print("Dialog dismissed!")
+    )
 
     # 系統設定
     setting_form_allbox = ft.Checkbox(label="Activate ALL Forms", value=False, height=25, width=200, on_change=setting_form_checkall)
@@ -315,7 +342,7 @@ def main(page: Page):
 
     def setting_form_show(e=None):
         '''
-        Initial Settings: doctorid + forms selection
+        Show Settings: doctorid + forms selection
         '''
         setting_form_allbox.on_change = setting_form_checkall
         for control in setting_form_checkbox.controls:
@@ -355,7 +382,7 @@ def main(page: Page):
 
     def setting_connection_show(e=None):
         '''
-        Settings: connection
+        Show Settings: connection + button event + migration
         '''
         view_setting_connection = ft.View(
             route = "/setting_connection",
@@ -378,6 +405,9 @@ def main(page: Page):
                         # font_size_row,
                         ft.Row(
                             controls=[ft.ElevatedButton("Apply Settings", on_click=setting_connection_submit, expand=True)]
+                        ),
+                        ft.Row(
+                            controls=[ft.ElevatedButton("Migrate Database", on_click=setting_connection_db_migrate, expand=True)]
                         ),
                     ], 
                     expand=True,

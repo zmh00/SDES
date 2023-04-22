@@ -8,7 +8,7 @@ import logging
 import inspect
 
 # CONST and ATTRIBUTES
-TEST_MODE = False
+TEST_MODE = True
 FORMAT_MODE = 1
 # DATE_MODE = 1
 HOST = '10.53.70.143'
@@ -371,13 +371,13 @@ class Measurement_Text(Measurement):
         return self.row
     
 
-    def data_clear(self, e=None):
+    def data_clear(self):
         for item_name in self.body:
             self.body[item_name].value = ''
         self.update()
 
 
-    def data_return_default(self, e=None):
+    def data_return_default(self):
         if self.default != None:
             for keys in self.default:
                 self.body[keys].value = self.default[keys]
@@ -434,13 +434,13 @@ class Measurement_Check(Measurement):
             return ft.Column(controls=[self.head, self.row]) # 讓head換行後接著checkboxes
     
 
-    def data_clear(self, e=None):
+    def data_clear(self):
         for item_name in self.body:
             self.body[item_name].value = False
         self.update()
 
 
-    def data_return_default(self, e=None):
+    def data_return_default(self):
         if self.default != None:
             for keys in self.default:
                 self.body[keys].value = self.default[keys]
@@ -521,16 +521,16 @@ class Form(ft.Tab): #目的是擴增Tab的功能
         for measurement in self.measurement_list:
             measurement.data_set_value(values_dict)
 
-    def data_clear(self, e=None):
+    def data_clear(self):
         for measurement in self.measurement_list:
             measurement.data_clear()
         self.set_display() # 清除display
     
-    def data_return_default(self, e=None):
+    def data_return_default(self):
         for measurement in self.measurement_list:
             measurement.data_return_default()
 
-    def data_opdformat(self, e=None):
+    def data_opdformat(self):
         '''
         form階層的格式化輸出，主要添加換行和時間模式，並排除沒有資料的欄位
         '''
@@ -565,8 +565,11 @@ class Form(ft.Tab): #目的是擴增Tab的功能
             values.update(measurement.db_values_dict)
         return values
 
-    def db_migrate(self) -> bool: # 偵測目前有沒有這個table沒有就建立，如果有column差異就新增?
+    def db_migrate(self) -> bool: 
+        '''
+        偵測目前有沒有這個table沒有就建立，如果有column差異就新增?
         #### 需要注意引號與大小寫table name and column name => 目前設計是case sensitive
+        '''
         
         # 偵測table
         detect_query = f'''SELECT EXISTS (
@@ -789,9 +792,11 @@ class Forms(): #集合Form(Tab)，包裝存、取、清除功能
 
 
     def db_migrate(self): # 全部forms migrate
-        for form in self.form_list_selected:
-            form.db_migrate()
-    
+        res_string = ''
+        for form in self.form_list_original:
+            res = form.db_migrate()
+            res_string = res_string + f"{form.label}:{res}\n"
+        return res_string
 
     # 按下存檔按鈕時會抓取病人資料
     def db_save(self, patient_hisno, tab_index = None, **kwargs): # 儲存form:整合儲存單一與全部
