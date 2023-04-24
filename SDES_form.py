@@ -8,7 +8,7 @@ import logging
 import inspect
 
 # CONST and ATTRIBUTES
-TEST_MODE = True
+TEST_MODE = False
 FORMAT_MODE = 1
 # DATE_MODE = 1
 HOST = '10.53.70.143'
