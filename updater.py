@@ -1,38 +1,80 @@
 import requests
-import os
+import webbrowser
+import ctypes # for notification dialog in windows, consider tkinter in cross-platform design
 
-# 輸入GitHub用戶名和存儲庫名稱
-username = "zmh00"
-repository = "SDES"
-target_name = "SDES_main.exe"
+ALERT_TITLE = 'Warning'
 
-# 發送GET請求獲取最新的發布版本
-url = f"https://api.github.com/repos/{username}/{repository}/releases/latest"
-response = requests.get(url)
 
-# 確認請求成功
-if response.status_code == requests.codes.ok:
-    target_url = ''
-    assets = response.json()['assets']
-    for asset in assets:
-        if asset['name'] == target_name:
-            target_url = asset['browser_download_url']
-            break
+def alert(windowtitle, windowcontent):
+    '''Alert window displayed in Windows
+    - windowtitle: title of the window
+    - windowcontent: content of the window
+    '''
+    WS_EX_TOPMOST = 0x40000
+    ctypes.windll.user32.MessageBoxExW(None, windowcontent, windowtitle, WS_EX_TOPMOST)
+
+
+def updater_github(owner, repo, target_file: str, version_tag: str, mode='browser'):
+    '''Update notification through comparison tag difference on Github release
+    - owner: name of the owner of the repository
+    - repo: name of the repository 
+    - target_file: name for search in assets
+    - version_tag: pass in the local version for comparison
+    - mode: 'browser'|'direct'. browser means open the browser link and download by the user in order to avoid antiviral alarm; direct means download by requests directly.
+    '''
+    # latest_url: github release API(https://api.github.com/repos/{owner}/{repo}/releases/latest)
+    latest_url = f"https://api.github.com/repos/{owner}/{repo}/releases/latest"
     
-    # 發送GET請求獲取檔案內容
-    response = requests.get(target_url)
+    # TODO 將requests函式庫改成Python原生庫並獨立釋出
+    try:
+        res = requests.get(url=latest_url)
+        if res.status_code == requests.codes.ok:
+            res_json = res.json()
+            latest_version_tag = res_json['tag_name']
+            latest_assets = res_json['assets']
+        else:
+            alert(ALERT_TITLE, f"請求失敗，HTTP代碼：{res.status_code}")
+            return False
 
-    # 確認請求成功
-    if response.status_code == requests.codes.ok:
-        # 將內容寫入檔案中
-        with open(target_name, "wb") as f:
-            f.write(response.content)
-        print(f"已將檔案下載至 {target_name}。")
-    else:
-        # 請求失敗時輸出錯誤訊息
-        print(f"請求失敗，HTTP代碼：{response.status_code}")
-else:
-    # 請求失敗時輸出錯誤訊息
-    print(f"請求失敗，HTTP代碼：{response.status_code}")
+        for asset in latest_assets:
+            if target_file in asset['name']:
+                browser_download_url = asset['browser_download_url']
+                target_full_name = asset['name']
+                break
+        
+        if version_tag < latest_version_tag: # check whether the local program is the latest with string comparison in python
+            print("Not the latest vesion!")
 
-os.system("pause")
+            # open browser
+            if mode == 'browser':
+                # display a message box
+                alert(ALERT_TITLE, "有新版的程式會透過瀏覽器下載")
+
+                print("Browser downloading...")
+                webbrowser.open(browser_download_url, new=2)
+
+            # download by requests
+            elif mode == 'direct':
+                # display a message box
+                alert(ALERT_TITLE, "有新版的程式直接下載於同一文件夾內(需等待片刻)")
+
+                print("Direct downloading...")
+                res = requests.get(browser_download_url)
+                if res.status_code == requests.codes.ok:
+                    filename, extension = target_full_name.split('.') # split the filename 
+                    filename = f'{filename}({latest_version_tag}).{extension}' # reset the file name and add version tag
+                    with open(filename, 'wb') as f:
+                        f.write(res.content)
+                    
+                    # display a message box
+                    alert(ALERT_TITLE, "已下載完成(於同一文件夾內)")
+
+                else:
+                    alert(ALERT_TITLE, f"請求失敗，HTTP代碼：{res.status_code}")
+            return False
+        else:
+            print("Already the latest version!")
+            return True
+    except Exception as e:
+        alert(ALERT_TITLE, f"Something wrong:{e}")
+        return False

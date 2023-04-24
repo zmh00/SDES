@@ -6,75 +6,18 @@ import subprocess
 import uiautomation as auto
 # forms listed in SDES_form
 import SDES_form
+import updater
 import atexit
 
+# OPD system process name
 PROCESS_NAME = 'vghtpe.dcr.win.exe'
 
-LATEST_URL= 'https://api.github.com/repos/zmh00/SDES/releases/latest'
-VERSION_TAG = 'v1.0.0'
+# Settings of updater
+OWNER = 'zmh00'
+REPO = 'SDES'
+VERSION_TAG = 'v1.1.1'
 TARGET_FILE = 'SDES_main'
-
-
-def updater_github(version_tag: str, latest_url: str, target_file: str, mode='direct'):
-    '''
-    Update notification through comparison tag difference on Github release
-    - version_tag: the local version
-    - latest_url: github release API(https://api.github.com/repos/{owner}/{repo}/releases/latest)
-    - target_file: name for search in assets
-    - mode: 'browser'|'direct'. browser means open the browser link and download by the user in order to avoid antiviral alarm; direct means download by requests directly.
-    '''
-
-    # TODO 將requests函式庫改成Python原生庫並獨立釋出
-    import requests
-    import webbrowser
-    import ctypes # for notification dialog in windows, consider tkinter in cross-platform design
-
-    res = requests.get(url=latest_url)
-    res_json = res.json()
-    latest_version_tag = res_json['tag_name']
-    latest_assets = res_json['assets']
-
-    for asset in latest_assets:
-        if target_file in asset['name']:
-            browser_download_url = asset['browser_download_url']
-            target_full_name = asset['name']
-            break
-    
-    if version_tag < latest_version_tag: # check whether the local program is the latest with string comparison in python
-        print("Not the latest vesion!")
-        WS_EX_TOPMOST = 0x40000
-        windowTitle = "SDES Updater"
-
-        # open browser
-        if mode == 'browser':
-            # display a message box
-            message = "有新版的程式會透過瀏覽器下載"
-            ctypes.windll.user32.MessageBoxExW(None, message, windowTitle, WS_EX_TOPMOST)
-
-            print("Browser downloading...")
-            webbrowser.open(browser_download_url, new=2)
-
-        # download by requests
-        elif mode == 'direct':
-            # display a message box
-            message = "有新版的程式直接下載於同一文件夾內(需等待片刻)"
-            ctypes.windll.user32.MessageBoxExW(None, message, windowTitle, WS_EX_TOPMOST)
-
-            print("Direct downloading...")
-            res = requests.get(browser_download_url)
-            filename, extension = target_full_name.split('.') # split the filename 
-            filename = f'{filename}({latest_version_tag}).{extension}' # reset the file name and add version tag
-            with open(filename, 'wb') as f:
-                f.write(res.content)
-            
-            # display a message box
-            message = "已下載完成(於同一文件夾內)"
-            ctypes.windll.user32.MessageBoxExW(None, message, windowTitle, WS_EX_TOPMOST)
-
-        return False
-    else:
-        print("Already the latest version!")
-        return True
+ALERT_TITLE = 'SDES Updater'
 
 
 def process_exists(process_name=PROCESS_NAME):
@@ -142,6 +85,9 @@ def patient_data_autoset(patient_hisno: ft.TextButton, patient_name: ft.Text, pa
                         'age': l[3][:2]
                     }
                     if p_dict != old_p_dict: # 找到新病人
+
+                        SDES_form.forms.data_clear() # 新病人開始讀取前要先清除上一個病人資訊 # TODO 應該要有alert讓使用者自己選
+                        
                         patient_hisno.content.value = p_dict['hisno']
                         patient_name.value = p_dict['name']
                         old_p_dict = p_dict
@@ -353,14 +299,37 @@ def main(page: Page):
         '''
         SDES_form.db_connect()
         res_string = SDES_form.forms.db_migrate()
-        page.dialog = migration_dlg
-        migration_dlg.content.value = res_string
-        migration_dlg.open = True
+        page.dialog = dlg_migration
+        dlg_migration.content.value = res_string
+        dlg_migration.open = True
         page.update()
 
+    # TODO 未來功能
+    # def dlg_overwrite_show(e=None):
+    #     page.dialog = dlg_overwrite
+    #     dlg_overwrite.open = True
+    #     page.update()
 
-    # migration dialog
-    migration_dlg = ft.AlertDialog(
+
+    # def dlg_overwrite_hide(e=None):
+    #     dlg_overwrite.open = False
+    #     page.update()
+
+
+    # # dialog overwrite
+    # dlg_overwrite = ft.AlertDialog(
+    #     title=ft.Text("資料未儲存"),
+    #     content=ft.Text("如何處理未儲存資料?"),
+    #     modal=False,
+    #     actions=[
+    #         ft.TextButton("存入資料庫", on_click=save_db),
+    #         ft.TextButton("捨棄資料", on_click=clear_forms),
+    #     ],
+    # )
+
+
+    # dialog migration
+    dlg_migration = ft.AlertDialog(
         title=ft.Text("Migration response"),
         content=ft.Text(),
         on_dismiss=lambda e: print("Dialog dismissed!")
@@ -661,13 +630,18 @@ def main(page: Page):
         patient = patient_data_check()
         if patient != False:
             if setting_connection_loadbutton.value == False:
-                res = SDES_form.forms.db_load(patient_hisno=patient['patient_hisno'], tab_index=tabs.selected_index) # 讀取單一
+                # TODO 應該要有警告資料複寫
+                # SDES_form.forms.data_clear() # 不論load一或多個都應該清掉全部
+                # SDES_form.forms.data_clear(tab_index=tabs.selected_index)
+                error_list = SDES_form.forms.db_load(patient_hisno=patient['patient_hisno'], tab_index=tabs.selected_index) # 讀取單一
             else:
-                res = SDES_form.forms.db_load(patient_hisno=patient['patient_hisno']) # 讀取全部
-            if len(res) !=0:
-                notify(f"讀取資料失敗:{res}", delay=1.5)
+                # TODO 應該要有警告資料複寫
+                # SDES_form.forms.data_clear() # 不論load一或多個都應該清掉全部
+                error_list = SDES_form.forms.db_load(patient_hisno=patient['patient_hisno']) # 讀取全部
+            if len(error_list) !=0:
+                notify(f"讀取資料失敗:{error_list}", delay=1.5)
             else:
-                notify("讀取資料成功")
+                notify("讀取資料成功") # TODO 如果沒有資料是不是要另外notify沒有資料?
 
     
     def save_db(e=None, patient = None):
@@ -677,11 +651,11 @@ def main(page: Page):
             try:
                 # 決定存一個或全部forms
                 if setting_connection_savebutton.value == False:
-                    res = SDES_form.forms.db_save(**patient, tab_index=tabs.selected_index) # 儲存單一forms
+                    error_list = SDES_form.forms.db_save(**patient, tab_index=tabs.selected_index) # 儲存單一forms
                 else:
-                    res = SDES_form.forms.db_save(**patient)  # 傳入{'patient_hisno':..., 'patient_name':...,} # 儲存全部forms
-                if len(res) !=0:
-                    notify(f"資料寫入資料庫失敗:{res}", delay=1.5)
+                    error_list = SDES_form.forms.db_save(**patient)  # 傳入{'patient_hisno':..., 'patient_name':...,} # 儲存全部forms
+                if len(error_list) !=0:
+                    notify(f"資料寫入資料庫失敗:{error_list}", delay=1.5)
                 else:
                     notify("資料寫入資料庫成功")
             except Exception as e:
@@ -784,6 +758,7 @@ def close_db():
 atexit.register(close_db)
 
 # 確認是否為最新的版本
-is_latest = updater_github(version_tag=VERSION_TAG, latest_url=LATEST_URL, target_file=TARGET_FILE)
+updater.ALERT_TITLE = ALERT_TITLE
+is_latest = updater.updater_github(OWNER, REPO, TARGET_FILE, VERSION_TAG, mode='browser')
 if is_latest==True:
     ft.app(target=main)

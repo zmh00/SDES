@@ -8,7 +8,7 @@ import logging
 import inspect
 
 # CONST and ATTRIBUTES
-TEST_MODE = False
+TEST_MODE = True
 FORMAT_MODE = 1
 # DATE_MODE = 1
 HOST = '10.53.70.143'
@@ -390,7 +390,7 @@ class Measurement_Text(Measurement):
 
 
 class Measurement_Check(Measurement):
-    def __init__(self, label: str, item_list: list, width_list: Union[List[int], int] = 70, format_region = 'o', format_func = format_checkbox, default: dict = None, compact = False):
+    def __init__(self, label: str, item_list: list, width_list: Union[List[int], int] = None, format_region = 'o', format_func = format_checkbox, default: dict = None, compact = False):
         if type(item_list) != list:
             raise Exception("Wrong input in Measurement_Check item_list")
         super().__init__(label, ft.Checkbox, item_list)
@@ -398,12 +398,19 @@ class Measurement_Check(Measurement):
         self.format_func = format_func
         self.format_region = format_region
         self.compact = compact
-        if type(width_list) ==  list:
+        if width_list == None: # 自動依據字串長度產生寬度
+            tmp = []
+            for item in item_list:
+                tmp.append(int(60 + (len(item)-1) * 6))
+            self.checkbox_width = tmp
+        elif type(width_list) == list: # 指定寬度list
             if len(width_list) != len(item_list):
                 raise Exception("Not match between width_list and item_list")
             self.checkbox_width = width_list
-        else:
+        elif type(width_list) == int: # 指定單一寬度
             self.checkbox_width = [width_list] * len(item_list)
+        else:
+            raise Exception("Something wrong with width_list")
         
     
     def build(self):
@@ -521,14 +528,24 @@ class Form(ft.Tab): #目的是擴增Tab的功能
         for measurement in self.measurement_list:
             measurement.data_set_value(values_dict)
 
+
     def data_clear(self):
         for measurement in self.measurement_list:
             measurement.data_clear()
         self.set_display() # 清除display
-    
+
+
     def data_return_default(self):
         for measurement in self.measurement_list:
             measurement.data_return_default()
+
+
+    def data_exist(self):
+        for measurement in self.measurement_list:
+            if measurement.data_exist:
+                return True
+        return False
+
 
     def data_opdformat(self):
         '''
@@ -786,9 +803,19 @@ class Forms(): #集合Form(Tab)，包裝存、取、清除功能
         return format_final
 
 
-    def data_clear(self): # 全部forms 清除
+    def data_clear(self, tab_index = None): # 全部/單一form清除
+        if tab_index == None: # 全部
+            for form in self.form_list_selected:
+                form.data_clear()
+        else:
+            self.form_list_selected[tab_index].data_clear()
+
+
+    def data_exist(self):
         for form in self.form_list_selected:
-            form.data_clear()
+            if form.data_exist():
+                return True
+        return False
 
 
     def db_migrate(self): # 全部forms migrate
@@ -830,6 +857,7 @@ class Forms(): #集合Form(Tab)，包裝存、取、清除功能
 
     def db_load(self, patient_hisno, tab_index = None, **kwargs): # 讀取form:整合讀取單一與全部
         error_list = []
+        # TODO load之前應該要判斷 Forms exist，如果存在要返回警告，選擇強制清除就繼續
         if tab_index == None: # 全部
             for form in self.form_list_selected:
                 res = form.db_load(patient_hisno, **kwargs)
@@ -913,12 +941,10 @@ form_plasty = Form(
         Measurement_Check(
             label = 'CAS', 
             item_list = ['Retrobulbar pain', 'Motion pain', 'Redness eyelid', 'Redness conjunctiva', 'Swelling caruncle', 'Swelling eyelids', 'Swelling conjunctiva'], 
-            width_list = 150,
         ),
         Measurement_Check(
             label = 'Muscle Involvement',
-            item_list = ['SR', 'MR', 'IR', 'LR', 'SO', 'IO', 'LE'],
-            width_list = 70
+            item_list = ['SR', 'MR', 'IR', 'LR', 'SO', 'IO', 'LE']
         )
     ],
 )
@@ -927,21 +953,24 @@ form_plasty = Form(
 form_dryeye = Form(
     label="DryEye",
     measurement_list=[
-        Measurement_Check('Symptom', ['dry eye', 'dry mouth', 'pain','photophobia','tearing','discharge'], [100, 100, 70, 130, 100, 100], compact=True, format_region='s'),
+        Measurement_Check('Symptom', ['dry eye', 'dry mouth', 'pain','photophobia','tearing','discharge'], compact=True, format_region='s'),
+        Measurement_Text('Other Symptoms', '', format_region='s'),
         Measurement_Text('History', '', format_region='s'),
-        Measurement_Check('PHx', ['DM', 'Hyperlipidemia', 'Sjogren', 'Seborrheic','Smoking', 'CATA', 'Refractive', 'IPL'], [70, 140, 100, 100, 100, 70, 120, 70], compact=True, format_region='s'),
-        Measurement_Text('Shirmer', format_func=format_text_2score),
+        Measurement_Check('PHx', ['DM', 'Hyperlipidemia', 'Sjogren', 'Seborrheic','Smoking', 'CATA', 'Refractive', 'IPL'], compact=True, format_region='s'),
+        Measurement_Text('Shirmer 1', format_func=format_text_2score),
         Measurement_Text('TBUT', format_func=format_text_2score),
         Measurement_Text('NEI', format_func=format_text_2score),
-        Measurement_Check('MCJ_displacement', ['OD','OS'], [70,70], compact=True),
+        Measurement_Check('MCJ_displacement', ['OD','OS'], compact=True),
         Measurement_Text('Telangiectasia'),
+        Measurement_Check('MG plugging', ['OD','OS'], compact=True),
         Measurement_Text('Meibum', multiline=True),
         Measurement_Text('Mei_EXP', format_func=format_text_2score),
         Measurement_Text('Question', ['OSDI', 'SPEED']),
         Measurement_Text('LLT', format_func=format_text_2score),
         Measurement_Text('Lipidview', multiline=True),
-        Measurement_Check('Lab abnormal', ['SSA/B', 'ANA', 'ESR','RF'], [80,70,70,70],compact=True),
-        Measurement_Text('Impression','', format_func=format_no_output, format_region='p')
+        Measurement_Check('Lab abnormal', ['SSA/B', 'ANA', 'ESR','RF', 'dsDNA'], compact=True),
+        Measurement_Text('Impression','', format_func=format_no_output, format_region='p'),
+        Measurement_Check('Treatment', ['NPAT', 'Restasis', 'Autoserum', 'Diquas', 'IPL', 'Punctal plug'], compact=True),
     ]
 )
 
@@ -949,7 +978,8 @@ form_ipl = Form(
     label="IPL",
     measurement_list=[
         Measurement_Text('IPL NO', '', format_region='p'),
-        Measurement_Text('Massage', '', format_region='p')
+        Measurement_Text('Massage(OD)', ['upper','lower'], format_region='p'),
+        Measurement_Text('Massage(OS)', ['upper','lower'], format_region='p')
     ]
 )
 
@@ -981,12 +1011,12 @@ form_ivi = Form(
         iop,
         Measurement_Text('Lens'),
         Measurement_Text('CMT'),
-        Measurement_Check('IRF', ['OD','OS'], [70,70], compact=True),
-        Measurement_Check('SRF', ['OD','OS'], [70,70], compact=True),
-        Measurement_Check('SHRM', ['OD','OS'], [70,70], compact=True),
-        Measurement_Check('Atrophy', ['OD','OS'], [70,70], compact=True),
-        Measurement_Check('Gliosis', ['OD','OS'], [70,70], compact=True),
-        Measurement_Check('New hemorrhage', ['OD','OS'], [70,70], compact=True),
+        Measurement_Check('IRF', ['OD','OS'], compact=True),
+        Measurement_Check('SRF', ['OD','OS'], compact=True),
+        Measurement_Check('SHRM', ['OD','OS'], compact=True),
+        Measurement_Check('Atrophy', ['OD','OS'], compact=True),
+        Measurement_Check('Gliosis', ['OD','OS'], compact=True),
+        Measurement_Check('New hemorrhage', ['OD','OS'], compact=True),
         Measurement_Text('Fundus', multiline=True),
     ]
 )
