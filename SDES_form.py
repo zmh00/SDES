@@ -6,9 +6,10 @@ from psycopg2.sql import SQL, Identifier, Placeholder, Literal
 from psycopg2.extras import RealDictCursor
 import logging
 import inspect
+import os
 
 # CONST and ATTRIBUTES
-TEST_MODE = False
+TEST_MODE = bool(os.getenv('SDES_TEST', False))
 FORMAT_MODE = 1
 # DATE_MODE = 1
 HOST = '10.53.70.143'
