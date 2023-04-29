@@ -9,14 +9,17 @@ import SDES_form
 import updater
 import atexit
 
+# packing command
+# flet pack .\SDES_main.py --name SDES --icon .\icon.png 
+
 # OPD system process name
 PROCESS_NAME = 'vghtpe.dcr.win.exe'
 
 # Settings of updater
 OWNER = 'zmh00'
 REPO = 'SDES'
-VERSION_TAG = 'v1.1.1'
-TARGET_FILE = 'SDES_main'
+VERSION_TAG = 'v1.2.2'
+TARGET_FILE = 'SDES'
 ALERT_TITLE = 'SDES Updater'
 
 
@@ -109,8 +112,8 @@ def patient_data_autoset(patient_hisno: ft.TextButton, patient_name: ft.Text, pa
                         state = 0
                         auto.Logger.WriteLine(f"No window frmSoap", auto.ConsoleColor.Red)
                         time.sleep(0.2)
-            except:
-                auto.Logger.WriteLine(f"Something wrong", auto.ConsoleColor.Red)
+            except Exception as e:
+                auto.Logger.WriteLine(f"Something wrong:{e}", auto.ConsoleColor.Red)
                 time.sleep(0.2)
 
 
@@ -152,7 +155,7 @@ def set_text(panel, text_input:str, location, replace) -> str:
             edit_control = window_soap.PaneControl(searchDepth=1, AutomationId=parameters[panel][0]).EditControl(searchDepth=1, AutomationId=parameters[panel][1])
             if edit_control.Exists():
                 text_original = edit_control.GetValuePattern().Value
-                print(f"original text: {text_original}")
+                print(f"original text: {text_original}") # FIXME 可移除
                 if replace == 1:
                     text = text_input
                 else:
@@ -671,7 +674,7 @@ def main(page: Page):
             try:
                 for region in format_dict:
                     if format_dict[region] != '':
-                        set_text(panel=region, text_input=format_dict[region], location=1, replace=0)
+                        set_text(panel=region, text_input=format_dict[region], location=0, replace=0)
                 notify("完成資料寫入門診系統")
             except Exception as e:
                 SDES_form.logger.error(e)
@@ -751,7 +754,8 @@ def main(page: Page):
 def close_db():
     if SDES_form.db_conn != None:
         SDES_form.db_close()
-        print(f"DB closing..")
+        SDES_form.logger.debug("DB closing..")
+    SDES_form.logger.info("Program Terminated")
 
 
 # 註冊當程式關閉前關閉DB連線

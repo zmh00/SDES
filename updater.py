@@ -14,7 +14,7 @@ def alert(windowtitle, windowcontent):
     ctypes.windll.user32.MessageBoxExW(None, windowcontent, windowtitle, WS_EX_TOPMOST)
 
 
-def updater_github(owner, repo, target_file: str, version_tag: str, mode='browser'):
+def updater_github(owner, repo, target_file: str, version_tag: str, mode):
     '''Update notification through comparison tag difference on Github release
     - owner: name of the owner of the repository
     - repo: name of the repository 

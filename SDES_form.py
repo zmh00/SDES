@@ -7,6 +7,7 @@ from psycopg2.extras import RealDictCursor
 import logging
 import inspect
 import os
+import time
 
 # CONST and ATTRIBUTES
 TEST_MODE = bool(os.getenv('SDES_TEST', False))
@@ -135,6 +136,17 @@ def format_text_2score(measurement):
     return format_text
 
 
+def format_text_parentheses(measurement):
+    format_text_list = []
+    for item_name in measurement.item_list:
+        t = measurement.body[item_name].value.strip()
+        t = t if t != '' else '?'
+        format_text_list.append(f'({item_name}){t}')
+
+    format_text = f"{measurement.label}:" + '/'.join(format_text_list)
+    return format_text
+
+
 def format_checkbox(measurement):
     format_text = ''
     for item_name in measurement.body:
@@ -145,15 +157,15 @@ def format_checkbox(measurement):
     return format_text
 
 
-def format_k(measurement):
+def format_shirmer1(measurement):
     format_text = ''
-    k_h = measurement.body['H'].value.strip()
-    k_h = k_h if k_h != '' else 'error'
-    k_v = measurement.body['V'].value.strip()
-    k_v = k_v if k_v != '' else 'error'
-    format_text = f"(H){k_h}/(V){k_v}"
-
-    format_text = f"{measurement.label}:" + format_text
+    for item_name in measurement.body:
+        if measurement.body[item_name].value.strip() == '':
+            format_text = format_text + f"?/"
+        else:
+            format_text = format_text + f"{measurement.body[item_name].value.strip()}/"
+    
+    format_text = f"{measurement.label}:" + format_text.rstrip('/') + 'mm'
     return format_text
 
 
@@ -191,7 +203,19 @@ def format_exo(measurement):
 
 
 class Measurement(ft.UserControl):
-    def __init__(self, label: str, control_type: ft.Control, item_list: List[str]): # 接受參數用
+    tristate_data_to_db ={
+        True: True,
+        None: False,
+        False: None,
+    }
+    
+    tristate_db_to_data ={
+        True: True,
+        False: None,
+        None: False,
+    }
+
+    def __init__(self, label: str, control_type: ft.Control, item_list: List[str], format_func, format_region, default): # 接受參數用
         super().__init__()
         self.label = label # 辨識必須: 後續加入form內的measurement都需要label
         self.control_type = control_type # 未使用考慮可以移除
@@ -209,10 +233,16 @@ class Measurement(ft.UserControl):
         else:
             self.item_list = item_list
         
-        self.ignore_exist_item_list = [] # 跳脫data_exist檢查的項目
+        self.ignore_exist_item_list = [] # 跳脫data_exist檢查的項目，此功能要透過add_control加入的元件才能設定
+        
+        self.format_func = format_func
+        self.format_region = format_region
+        self.default = default # {item_keys: default_value}
+
 
     def __repr__(self) -> str:
         return f"{self.label}||{super().__repr__()}"
+
 
     def build(self): # 初始化UI
         pass # 需要客製化: 因為元件設計差異大，Method overriding after inheritence
@@ -229,26 +259,38 @@ class Measurement(ft.UserControl):
         if ignore_exist:
             self.ignore_exist_item_list.append(item_name)
 
-
-    def data_set_value(self, values_dict):
-        for item in self.item_list:
-            if str(item).strip() == '': # 如果item是空字串
-                key = f"{self.label}".replace(' ','_')
-            else:
-                key = f"{self.label}_{item}".replace(' ','_')  # 把空格處理掉 => 減少後續辨識錯誤
-            self.body[item].value = values_dict[key]
-        self.update()
     
-    def data_clear(self): # 清除
-        pass
+    def data_clear(self): 
+        '''
+        顯示欄位清除
+        '''
+        if self.control_type == ft.Checkbox: # checkbox data_clear
+            for item_name in self.body:
+                self.body[item_name].value = False
+            self.update()
+        elif self.control_type == ft.TextField: # textfield data_clear
+            for item_name in self.body:
+                self.body[item_name].value = ''
+            self.update()
+        # else: #其他可能?
 
-    def data_return_default(self): # 恢復預設值
-        pass
+
+    def data_return_default(self):
+        '''
+        顯示欄位恢復預設值
+        '''
+        if self.default != None:
+            for keys in self.default:
+                self.body[keys].value = self.default[keys]
+            self.update() # 因為有update，只能在元件已經建立加入page後使用
     
+
     @property
     def data_exist(self):
         '''
-        回傳Measurement是否皆為空值
+        回傳一個Measurement內是否全部為空值，用在opdformat的傳入篩選
+        - textfield內容strip後若為空字串則為空值
+        - checkbox內容若為False(空白框框)則為空值 => tristate的原因(True、None當作有輸入)
         '''
         exist = False
         for i, item in enumerate(self.item_list):
@@ -260,24 +302,30 @@ class Measurement(ft.UserControl):
             if type(value) == str: # text型態空值
                 if value.strip() != '':
                     exist = True
-            elif type(value) == bool: # checkbox型態空值
-                if value != False:
+            elif self.control_type == ft.Checkbox:
+                if (value != False): # 為了checkbox型態的tristate
                     exist = True
             else:
                 logger.error(f"data_exist內部遇到未定義型態||type:{type(value)}||value:{value}")
 
         return exist
 
-    def data_opdformat(self, format_func, format_region): 
+
+    def data_load_db(self, values_dict):
         '''
-        帶入門診病例的格式
-        目前設計確認有無資料放在form內部，所以會傳入data_opdformat都是有使用者輸入資料的
+        將資料庫取得的values_dict(keys為資料庫形式:db_column_names)傳入顯示欄位
+        tristate checkbox會被轉譯(self.tristate_db_to_data)
         '''
-        # 客製化格式
-        format_text = format_func(self)
-        
-        # 分類到指定的region('s','o','p')，format_text為list type
-        return format_region, format_text
+        # 透過self.db_column_names方便程式碼閱讀但效率變差
+        column_names = self.db_column_names
+
+        for i, item in enumerate(self.item_list):
+            # TODO checkbox資料型態在此轉換
+            if self.control_type == ft.Checkbox:
+                self.body[item].value = self.tristate_db_to_data[values_dict[column_names[i]]]
+            else:
+                self.body[item].value = values_dict[column_names[i]]
+        self.update()
     
 
     @property
@@ -298,25 +346,50 @@ class Measurement(ft.UserControl):
     @property
     def db_values_dict(self):  #將內部資料輸出: dict( {self.label}_{item_name} : value )
         '''
-        將measurement內部值搭配column_names形成values_dict，只有去除頭尾空格，沒有捨棄空值
+        將measurement內部值搭配column_names形成values_dict
+        過程會捨棄空值
+        - textfield: ''會被捨去
+        - checkbox: 轉換前的False會被捨去(True、None會被留下)
         '''
         column_names = self.db_column_names
         values = {}
         for i, item in enumerate(self.item_list):
             value = self.body[item].value
-            if type(value) == str:
-                value = value.strip() # 前後空格去除
+
+            if self.control_type == ft.TextField: 
+                value = value.strip() # 字串類型前後空格去除
+                if value == '': # 字串空值就拋棄
+                    continue
+            
+            elif self.control_type == ft.Checkbox and self.tristate == True: # 處理tristate
+                if value == False: # checkbox轉換前的False會被捨去(True、None會被留下)
+                    continue
+                value = self.tristate_data_to_db[value]
+            
+            elif self.control_type == ft.Checkbox and self.tristate == False: # 處理普通checkbox
+                pass
+
             values[column_names[i]] = value
+
         return values
+
+
+    def data_opdformat(self): 
+        '''
+        帶入門診病例的格式
+        目前設計確認有無資料放在form內部，所以會傳入data_opdformat都是已有使用者輸入資料的
+        '''
+        # 客製化格式
+        format_text = self.format_func(self)
+        
+        # 分類到指定的region('s','o','p')，format_text為list type
+        return self.format_region, format_text
 
 
 class Measurement_Text(Measurement):
     def __init__(self, label: str, item_list: list = None, multiline = False, format_region = 'o', format_func = format_text_tradition, default: dict = None):
-        super().__init__(label, ft.TextField, item_list)
+        super().__init__(label, ft.TextField, item_list, format_region=format_region, format_func=format_func, default=default)
         self.multiline = multiline
-        self.format_func = format_func
-        self.format_region = format_region
-        self.default = default # {item_keys: default_value}
         if item_list is None:
             self.item_list = ['OD', 'OS'] # 預設是雙眼的資料
         
@@ -371,34 +444,15 @@ class Measurement_Text(Measurement):
 
         return self.row
     
-
-    def data_clear(self):
-        for item_name in self.body:
-            self.body[item_name].value = ''
-        self.update()
-
-
-    def data_return_default(self):
-        if self.default != None:
-            for keys in self.default:
-                self.body[keys].value = self.default[keys]
-            self.update() # 因為有update，只能在元件已經建立加入page後使用
-        
-    
-    def data_opdformat(self):
-        return super().data_opdformat(format_func=self.format_func, format_region=self.format_region)
          
-
-
 class Measurement_Check(Measurement):
-    def __init__(self, label: str, item_list: list, width_list: Union[List[int], int] = None, format_region = 'o', format_func = format_checkbox, default: dict = None, compact = False):
+    def __init__(self, label: str, item_list: list, width_list: Union[List[int], int] = None, format_region = 'o', format_func = format_checkbox, default: dict = None, compact = False, tristate = True):
         if type(item_list) != list:
             raise Exception("Wrong input in Measurement_Check item_list")
-        super().__init__(label, ft.Checkbox, item_list)
-        self.default = default # {item_keys: default_value}
-        self.format_func = format_func
-        self.format_region = format_region
+        super().__init__(label, ft.Checkbox, item_list, format_region=format_region, format_func=format_func, default=default)
         self.compact = compact
+        self.tristate = tristate
+        # width setting
         if width_list == None: # 自動依據字串長度產生寬度
             tmp = []
             for item in item_list:
@@ -417,7 +471,7 @@ class Measurement_Check(Measurement):
     def build(self):
         # self.head = ft.Text(self.label, text_align='center', style=ft.TextThemeStyle.TITLE_LARGE, weight=ft.FontWeight.W_400, color=ft.colors.BLACK)
         for i, item_name in enumerate(self.item_list):
-            self.body[item_name] = ft.Checkbox(label=item_name, value=False, width=self.checkbox_width[i], height=25) # height = 25 讓呈現更緊
+            self.body[item_name] = ft.Checkbox(label=item_name, value=False, width=self.checkbox_width[i], height=25, tristate=self.tristate) # height = 25 讓呈現更緊
         
         self.row = ft.Row(
             controls=[],
@@ -441,23 +495,6 @@ class Measurement_Check(Measurement):
         else:
             return ft.Column(controls=[self.head, self.row]) # 讓head換行後接著checkboxes
     
-
-    def data_clear(self):
-        for item_name in self.body:
-            self.body[item_name].value = False
-        self.update()
-
-
-    def data_return_default(self):
-        if self.default != None:
-            for keys in self.default:
-                self.body[keys].value = self.default[keys]
-            self.update() # 因為有update，只能在元件已經建立加入page後使用
-
-
-    def data_opdformat(self):
-        return super().data_opdformat(format_func=self.format_func, format_region=self.format_region)
-
 
 class Form(ft.Tab): #目的是擴增Tab的功能
     def __init__(self, label, measurement_list: List[Measurement]):
@@ -504,7 +541,6 @@ class Form(ft.Tab): #目的是擴增Tab的功能
         self.patient_name = patient_name
 
 
-    @property
     def measurements(self, item_name: str):
         for measurement in self.measurement_list:
             if measurement.label == item_name:
@@ -512,22 +548,22 @@ class Form(ft.Tab): #目的是擴增Tab的功能
         return None
 
 
-    def check_form_values_exist(self, values_dict: dict) -> bool:
-        '''
-        判斷傳入values_dict是否有值，針對不同類型的資料有不同判斷方式
-        '''
-        for key in values_dict:
-            value =  values_dict[key]
-            if type(value) == str and value.strip() != '':
-                return True
-            elif type(value) == bool and value != False:
-                return True
-        return False
+    # def check_form_values_exist(self, values_dict: dict) -> bool:
+    #     '''
+    #     判斷傳入values_dict是否有值，針對不同類型的資料有不同判斷方式
+    #     '''
+    #     for key in values_dict:
+    #         value =  values_dict[key]
+    #         if type(value) == str and value.strip() != '':
+    #             return True
+    #         elif type(value) == bool and value != False:
+    #             return True
+    #     return False
 
 
-    def data_set_value(self, values_dict):
+    def data_load_db(self, values_dict):
         for measurement in self.measurement_list:
-            measurement.data_set_value(values_dict)
+            measurement.data_load_db(values_dict)
 
 
     def data_clear(self):
@@ -567,6 +603,10 @@ class Form(ft.Tab): #目的是擴增Tab的功能
             if len(format_dict[region]) !=0:
                 format_form[region] = format_merge(format_dict[region], form_name = self.label)
 
+        # testing
+        if TEST_MODE:
+            print(f"format_form: {format_form}")
+
         return format_form
 
     @property
@@ -582,6 +622,24 @@ class Form(ft.Tab): #目的是擴增Tab的功能
         for measurement in self.measurement_list:
             values.update(measurement.db_values_dict)
         return values
+
+
+    def db_values_exist(self, values_dict): # 這個函數有點雞肋，因為判斷的是全部資料的忽略部分，不是逐一measurement來看
+        ignore_list_final = []
+        if len(values_dict)  == 0:
+            return False
+        else:
+            for measurement in self.measurement_list:
+                for item in measurement.ignore_exist_item_list:
+                    if str(item).strip() == '': # 如果item是空字串
+                        db_key = f"{measurement.label}".replace(' ','_')
+                    else:
+                        db_key = f"{measurement.label}_{item}".replace(' ','_')  # 把空格處理掉 => 減少後續辨識錯誤
+                    ignore_list_final.append(db_key)
+        
+        ignore = set(values_dict.keys()).issubset(set(ignore_list_final))
+        return not ignore
+
 
     def db_migrate(self) -> bool: 
         '''
@@ -663,6 +721,7 @@ class Form(ft.Tab): #目的是擴增Tab的功能
                     logger.error(f"{inspect.stack()[0][3]}||Table[{self.label}] Error in transaction(ALTER TABLE) and rollback: {error}")
                     db_conn.rollback()
                     return False
+        # TODO 型態如果有變化要更改
         return True
         
 
@@ -670,18 +729,12 @@ class Form(ft.Tab): #目的是擴增Tab的功能
         patient_name = kwargs.get('patient_name', None)
         values_dict = self.db_values_dict
         
-        # 如果沒有資料輸入(空白text or unchecked checkbox)就不送資料庫
-        # TODO 確認有沒有資料的方式是否改成透過measurement.data_exist?
-        if self.check_form_values_exist(values_dict) == False:
+        # 如果沒有資料輸入(空白text or unchecked checkbox or 需要被ignore的欄位)就不送資料庫
+        if self.db_values_exist(values_dict) == False:
             return None
         
-        # 有種可能是有名字一樣的measurement => column_names會多於values_dict
-        column_names = self.db_column_names
-        if len(column_names) != len(values_dict):
-            raise Exception(f"Table[{self.label}] Different length of column_names and values_dict")
-        
-        # 將醫師資料+病人資料存入
-        column_names = [COLUMN_DOC, COLUMN_PATIENT_HISNO, COLUMN_PATIENT_NAME] + column_names
+
+        # 加入病人醫師基本資訊
         values_dict.update(
             {
                 COLUMN_DOC: self.doctor_id,
@@ -704,8 +757,8 @@ class Form(ft.Tab): #目的是擴增Tab的功能
         # 自製query
         fields = ""
         values = ""
-        for column in column_names:
-            if (values_dict[column] != None) and (values_dict[column] != ''): # None 和 空字串不能直接放入SQL內
+        for column in values_dict:
+            if (values_dict[column] != None) and (values_dict[column] != ''): # values_dict在measurement輸出層面應該檢查過是否有值，未來可移除None
                 fields = fields + f'"{column}", '
                 if type(values_dict[column]) == str:
                     values = values + f"'{values_dict[column]}', "
@@ -714,13 +767,15 @@ class Form(ft.Tab): #目的是擴增Tab的功能
         query = f'''INSERT INTO "{self.label}" ({fields.rstrip(', ')}) VALUES ({values.rstrip(', ')})'''
 
         try:
-            #cursor.execute(query, values_dict) #因為前面定義過有標籤的placeholder，可以傳入dictionary
+            # cursor.execute(query, values_dict) #因為前面定義過有標籤的placeholder，可以傳入dictionary => 不能使用因為自製query
+            t1 = time.perf_counter()
             cursor.execute(query)
             db_conn.commit()
-            # logger.debug(f'{inspect.stack()[0][3]}||Form[{self.label}]||Finish saving commit')
+            t2 = time.perf_counter()
+            logger.debug(f'{inspect.stack()[0][3]}||Form[{self.label}]||Patient[{patient_hisno}]||Finish saving commit in {(t2-t1)*1000}ms')
             return True
         except Exception as e:
-            logger.error(f"{inspect.stack()[0][3]}||Form[{self.label}]||Encounter exception: {e}")
+            logger.error(f"{inspect.stack()[0][3]}||Form[{self.label}]||Patient[{patient_hisno}]||Encounter exception: {e}")
             db_conn.rollback()
             return False
 
@@ -736,17 +791,19 @@ class Form(ft.Tab): #目的是擴增Tab的功能
         )
 
         try:
+            t1 = time.perf_counter()
             cursor.execute(query)
             row = cursor.fetchone()
-            # logger.debug(f'Table[{self.label}]|Patient[{patient_hisno}] Loading query finished')
+            t2 = time.perf_counter()
+            logger.debug(f'{inspect.stack()[0][3]}||Form[{self.label}]||Patient[{patient_hisno}]||Loading query finished in {(t2-t1)*1000}ms')
             if row is None: # 沒有資料就回傳None
                 self.set_display(text="無資料可擷取")
                 return None
-            self.data_set_value(dict(row)) # 設定measurement資料
+            self.data_load_db(dict(row)) # 設定measurement資料
             self.set_display(text=f"已擷取資料日期:{row[COLUMN_TIME_UPDATED].strftime('%Y-%m-%d %H:%M')}") # 顯示display:資料擷取日期
             return True
         except Exception as e:
-            logger.error(f"{inspect.stack()[0][3]}||Table[{self.label}]||Encounter exception: {e}")
+            logger.error(f"{inspect.stack()[0][3]}||Form[{self.label}]||Patient[{patient_hisno}]||Encounter exception: {e}")
             return False
 
 
@@ -920,8 +977,8 @@ form_basic = Form(
     measurement_list=[
         Measurement_Text('VA'),
         Measurement_Text('REF'),
-        Measurement_Text('K(OD)', ['H','V'], format_func=format_k),
-        Measurement_Text('K(OS)', ['H','V'], format_func=format_k),
+        Measurement_Text('K(OD)', ['H','V'], format_func=format_text_parentheses),
+        Measurement_Text('K(OS)', ['H','V'], format_func=format_text_parentheses),
         iop,
         Measurement_Text('Cornea', multiline=True),
         Measurement_Text('AC'),
@@ -955,21 +1012,27 @@ form_dryeye = Form(
     label="DryEye",
     measurement_list=[
         Measurement_Check('Symptom', ['dry eye', 'dry mouth', 'pain','photophobia','tearing','discharge'], compact=True, format_region='s'),
-        Measurement_Text('Other Symptoms', '', format_region='s'),
-        Measurement_Text('History', '', format_region='s'),
-        Measurement_Check('PHx', ['DM', 'Hyperlipidemia', 'Sjogren', 'Seborrheic','Smoking', 'CATA', 'Refractive', 'IPL'], compact=True, format_region='s'),
-        Measurement_Text('Shirmer 1', format_func=format_text_2score),
+        Measurement_Text('Other Symptoms', '', format_region='s', multiline=True),
+        Measurement_Check('Affected QoL', ['driving', 'reading', 'work', 'outdoor', 'depressed']),
+        Measurement_Text('3C_hrs', ''),
+        Measurement_Text('SPEED', ''),
+        Measurement_Text('OSDI', ''),
+        Measurement_Text('History', '', format_region='s', multiline=True),
+        Measurement_Check('PHx', ['DM', 'Hyperlipidemia', 'Sjogren','GVHD', 'AlloPBSCT', 'Seborrheic','Smoking', 'CATA', 'Refractive', 'IPL'], compact=True, format_region='s'),
+        Measurement_Text('Shirmer 1', format_func=format_shirmer1),
         Measurement_Text('TBUT', format_func=format_text_2score),
         Measurement_Text('NEI', format_func=format_text_2score),
         Measurement_Check('MCJ_displacement', ['OD','OS'], compact=True),
         Measurement_Text('Telangiectasia'),
         Measurement_Check('MG plugging', ['OD','OS'], compact=True),
         Measurement_Text('Meibum', multiline=True),
-        Measurement_Text('Mei_EXP', format_func=format_text_2score),
-        Measurement_Text('Question', ['OSDI', 'SPEED']),
+        Measurement_Text('Mei_EXP'),
         Measurement_Text('LLT', format_func=format_text_2score),
+        Measurement_Text('Blinking', format_func=format_text_2score),
+        Measurement_Text('MG atrophy(OD)',['upper','lower'], format_func=format_text_parentheses),
+        Measurement_Text('MG atrophy(OS)',['upper','lower'], format_func=format_text_parentheses),
         Measurement_Text('Lipidview', multiline=True),
-        Measurement_Check('Lab abnormal', ['SSA/B', 'ANA', 'ESR','RF', 'dsDNA'], compact=True),
+        Measurement_Check('Lab abnormal', ['SSA/B', 'ANA', 'RF', 'dsDNA', 'ESR'], compact=True),
         Measurement_Text('Impression','', format_func=format_no_output, format_region='p'),
         Measurement_Check('Treatment', ['NPAT', 'Restasis', 'Autoserum', 'Diquas', 'IPL', 'Punctal plug'], compact=True),
     ]
