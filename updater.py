@@ -1,4 +1,5 @@
-import requests
+import json
+import urllib.request
 import webbrowser
 import ctypes # for notification dialog in windows, consider tkinter in cross-platform design
 
@@ -20,21 +21,21 @@ def updater_github(owner, repo, target_file: str, version_tag: str, mode):
     - repo: name of the repository 
     - target_file: name for search in assets
     - version_tag: pass in the local version for comparison
-    - mode: 'browser'|'direct'. browser means open the browser link and download by the user in order to avoid antiviral alarm; direct means download by requests directly.
+    - mode: 'browser'|'direct'. browser means open the browser link and download by the user in order to avoid antiviral alarm; direct means download by urllib directly.
     '''
     # latest_url: github release API(https://api.github.com/repos/{owner}/{repo}/releases/latest)
     latest_url = f"https://api.github.com/repos/{owner}/{repo}/releases/latest"
-    
-    # TODO 將requests函式庫改成Python原生庫並獨立釋出
+
     try:
-        res = requests.get(url=latest_url)
-        if res.status_code == requests.codes.ok:
-            res_json = res.json()
-            latest_version_tag = res_json['tag_name']
-            latest_assets = res_json['assets']
-        else:
-            alert(ALERT_TITLE, f"請求失敗，HTTP代碼：{res.status_code}")
-            return False
+        with urllib.request.urlopen(latest_url) as url:
+            res = json.loads(url.read().decode())
+
+            if 'tag_name' in res:
+                latest_version_tag = res['tag_name']
+                latest_assets = res['assets']
+            else:
+                alert(ALERT_TITLE, "Failed to retrieve latest version")
+                return False
 
         for asset in latest_assets:
             if target_file in asset['name']:
@@ -43,7 +44,7 @@ def updater_github(owner, repo, target_file: str, version_tag: str, mode):
                 break
         
         if version_tag < latest_version_tag: # check whether the local program is the latest with string comparison in python
-            print("Not the latest vesion!")
+            print("Not the latest version!")
 
             # open browser
             if mode == 'browser':
@@ -53,24 +54,25 @@ def updater_github(owner, repo, target_file: str, version_tag: str, mode):
                 print("Browser downloading...")
                 webbrowser.open(browser_download_url, new=2)
 
-            # download by requests
+            # download by urllib
             elif mode == 'direct':
                 # display a message box
                 alert(ALERT_TITLE, "有新版的程式直接下載於同一文件夾內(需等待片刻)")
 
                 print("Direct downloading...")
-                res = requests.get(browser_download_url)
-                if res.status_code == requests.codes.ok:
-                    filename, extension = target_full_name.split('.') # split the filename 
-                    filename = f'{filename}({latest_version_tag}).{extension}' # reset the file name and add version tag
-                    with open(filename, 'wb') as f:
-                        f.write(res.content)
+                with urllib.request.urlopen(browser_download_url) as url:
+                    res = url.read()
+                    if res:
+                        filename, extension = target_full_name.split('.') # split the filename 
+                        filename = f'{filename}({latest_version_tag}).{extension}' # reset the file name and add version tag
+                        with open(filename, 'wb') as f:
+                            f.write(res)
                     
-                    # display a message box
-                    alert(ALERT_TITLE, "已下載完成(於同一文件夾內)")
+                        # display a message box
+                        alert(ALERT_TITLE, "已下載完成(於同一文件夾內)")
 
-                else:
-                    alert(ALERT_TITLE, f"請求失敗，HTTP代碼：{res.status_code}")
+                    else:
+                        alert(ALERT_TITLE, "Failed to download the latest version")
             return False
         else:
             print("Already the latest version!")
