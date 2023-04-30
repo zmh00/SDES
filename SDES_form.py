@@ -11,24 +11,46 @@ import time
 
 # CONST and ATTRIBUTES
 TEST_MODE = bool(os.getenv('SDES_TEST', False))
-FORMAT_MODE = 1
+FORMAT_MODE = 0
 # DATE_MODE = 1
 HOST = '10.53.70.143'
 if TEST_MODE:
     HOST = 'localhost'
 PORT = '5431'
-DBNAME = 'vgh_oph'
+DBNAME = 'vgh_oph_2'
 USER = 'postgres'
 PASSWORD ='qazxcdews'
 FONT_SIZE_FACTOR = 0.6
+INTERVAL_FOR_NEW_DB_ROW = datetime.timedelta(hours=4) # 距離目前6小時前就算新紀錄
 # DOCTOR_ID
 
 # COLUMN NAMES
+COLUMN_ID = 'id'
 COLUMN_PATIENT_HISNO = 'patient_hisno'
 COLUMN_PATIENT_NAME = 'patient_name'
+COLUMN_PATIENT_BIRTHDAY = 'patient_birthday'
+COLUMN_PATIENT_AGE = 'patient_age'
 COLUMN_DOC = 'doctor_id'
 COLUMN_TIME_CREATED = 'created_at'
 COLUMN_TIME_UPDATED = 'updated_at'
+
+class PatientData():
+    def __init__(self, hisno, name=None, birthday=None, age=None) -> None:
+        self.data_dict = {
+            COLUMN_PATIENT_HISNO: hisno,
+            COLUMN_PATIENT_NAME: name,
+            COLUMN_PATIENT_BIRTHDAY: birthday,
+            COLUMN_PATIENT_AGE: age
+        }
+        self.hisno = hisno
+        self.name = name
+        self.birthday = birthday
+        self.age = age
+    
+    def __eq__(self, __value: object) -> bool: # 定義比較相等的方法
+        if not isinstance(__value, PatientData):
+            return False
+        return self.hisno == __value.hisno
 
 #客製化基本設定: 檔案+console
 logger = logging.getLogger("SDES_form")
@@ -285,7 +307,6 @@ class Measurement(ft.UserControl):
             self.update() # 因為有update，只能在元件已經建立加入page後使用
     
 
-    @property
     def data_exist(self):
         '''
         回傳一個Measurement內是否全部為空值，用在opdformat的傳入篩選
@@ -299,11 +320,16 @@ class Measurement(ft.UserControl):
                 continue
             
             value = self.body[item].value
+            control_type = type(self.body[item])
+
             if type(value) == str: # text型態空值
                 if value.strip() != '':
                     exist = True
-            elif self.control_type == ft.Checkbox:
+            elif control_type == ft.Checkbox:
                 if (value != False): # 為了checkbox型態的tristate
+                    exist = True
+            elif control_type == ft.Dropdown:
+                if (value != None): # 為了checkbox型態的tristate
                     exist = True
             else:
                 logger.error(f"data_exist內部遇到未定義型態||type:{type(value)}||value:{value}")
@@ -317,18 +343,16 @@ class Measurement(ft.UserControl):
         tristate checkbox會被轉譯(self.tristate_db_to_data)
         '''
         # 透過self.db_column_names方便程式碼閱讀但效率變差
-        column_names = self.db_column_names
+        column_names = self.db_column_names()
 
         for i, item in enumerate(self.item_list):
-            # TODO checkbox資料型態在此轉換
-            if self.control_type == ft.Checkbox:
-                self.body[item].value = self.tristate_db_to_data[values_dict[column_names[i]]]
+            if type(self.body[item]) == ft.Checkbox:
+                self.body[item].value = self.tristate_db_to_data[values_dict[column_names[i]]] # 資料庫獲取資料會在此轉換型態
             else:
                 self.body[item].value = values_dict[column_names[i]]
         self.update()
     
 
-    @property
     def db_column_names(self):
         '''
         將label+item名稱轉成資料庫column_names
@@ -343,34 +367,28 @@ class Measurement(ft.UserControl):
         return column_names
 
 
-    @property
     def db_values_dict(self):  #將內部資料輸出: dict( {self.label}_{item_name} : value )
         '''
         將measurement內部值搭配column_names形成values_dict
-        過程會捨棄空值
-        - textfield: ''會被捨去
-        - checkbox: 轉換前的False會被捨去(True、None會被留下)
+        過程不會捨棄空值 => 統一到Form處理
         '''
-        column_names = self.db_column_names
+        column_names = self.db_column_names()
         values = {}
         for i, item in enumerate(self.item_list):
             value = self.body[item].value
+            control_type = type(self.body[item])
 
-            if self.control_type == ft.TextField: 
+            if type(value) == str: # 為何不用self.control_type 是因為control如果有新增其他type control會有問題 要用更細的type(self.body[item])判斷
                 value = value.strip() # 字串類型前後空格去除
-                if value == '': # 字串空值就拋棄
-                    continue
-            
-            elif self.control_type == ft.Checkbox and self.tristate == True: # 處理tristate
-                if value == False: # checkbox轉換前的False會被捨去(True、None會被留下)
-                    continue
-                value = self.tristate_data_to_db[value]
-            
-            elif self.control_type == ft.Checkbox and self.tristate == False: # 處理普通checkbox
+            elif control_type == ft.Checkbox and self.tristate == True: # 處理tristate
+                value = self.tristate_data_to_db[value] # 資料轉換
+            elif control_type == ft.Checkbox and self.tristate == False: # 處理普通checkbox
                 pass
-
+            elif type(value) == None: # dropbox預設可能會是None
+                pass 
+            else:
+                pass
             values[column_names[i]] = value
-
         return values
 
 
@@ -524,44 +542,40 @@ class Form(ft.Tab): #目的是擴增Tab的功能
                 )
             ]
         )
+        self.db_row_id = None # 此參數表示目前連結資料庫的row_id，目的是可以持續update row用途
         
+
     def set_display(self, text=None):
-        if text == None: # 若沒有顯示文字就隱藏display
+        '''
+        顯示form內的顯示欄位，若沒text就隱藏display
+        '''
+        if text == None: 
             self.display.content.visible = False
         else:
             self.display.content.value = text
             self.display.content.visible = True
         self.display.update()
 
-    def set_doctor_id(self, doctor_id, *args):
+
+    def set_doctor_id(self, doctor_id):
         self.doctor_id = doctor_id
 
-    def set_patient_data(self, patient_hisno, patient_name, *args):
-        self.patient_hisno = patient_hisno
-        self.patient_name = patient_name
+    
+    def reset_db_row_id(self):
+        self.db_row_id = None
 
 
-    def measurements(self, item_name: str):
-        for measurement in self.measurement_list:
-            if measurement.label == item_name:
-                return measurement
-        return None
-
-
-    # def check_form_values_exist(self, values_dict: dict) -> bool:
-    #     '''
-    #     判斷傳入values_dict是否有值，針對不同類型的資料有不同判斷方式
-    #     '''
-    #     for key in values_dict:
-    #         value =  values_dict[key]
-    #         if type(value) == str and value.strip() != '':
-    #             return True
-    #         elif type(value) == bool and value != False:
-    #             return True
-    #     return False
+    # def measurements(self, item_name: str): # 沒用
+    #     for measurement in self.measurement_list:
+    #         if measurement.label == item_name:
+    #             return measurement
+    #     return None
 
 
     def data_load_db(self, values_dict):
+        '''
+        將資料庫資料讀取後設定到顯示欄位
+        '''
         for measurement in self.measurement_list:
             measurement.data_load_db(values_dict)
 
@@ -579,7 +593,7 @@ class Form(ft.Tab): #目的是擴增Tab的功能
 
     def data_exist(self):
         for measurement in self.measurement_list:
-            if measurement.data_exist:
+            if measurement.data_exist():
                 return True
         return False
 
@@ -594,7 +608,7 @@ class Form(ft.Tab): #目的是擴增Tab的功能
             'p':[]
         }
         for measurement in self.measurement_list:
-            if measurement.data_exist: # 確認有無資料決定是否納入
+            if measurement.data_exist(): # 確認有無資料決定是否納入
                 region, text = measurement.data_opdformat()
                 format_dict[region].append(text)
 
@@ -609,42 +623,58 @@ class Form(ft.Tab): #目的是擴增Tab的功能
 
         return format_form
 
-    @property
-    def db_column_names(self): # 集合所有的measurement column_names
+    
+    def db_column_names(self):
+        '''
+        集合所有的measurement column_names(經過轉換適合db使用)，不論有無空值
+        '''
         column_names = []
         for measurement in self.measurement_list:
-            column_names.extend(measurement.db_column_names)
+            column_names.extend(measurement.db_column_names())
         return column_names
 
-    @property
-    def db_values_dict(self): # 集合所有的measurement values, 若有同名後者會覆寫前者
+
+    def db_values_dict(self):
+        '''
+        集合所有的measurement values_dict 
+        - 若有同名後者會覆寫前者
+        '''
         values = {}
         for measurement in self.measurement_list:
-            values.update(measurement.db_values_dict)
+            values.update(measurement.db_values_dict())
         return values
 
 
-    def db_values_exist(self, values_dict): # 這個函數有點雞肋，因為判斷的是全部資料的忽略部分，不是逐一measurement來看
-        ignore_list_final = []
-        if len(values_dict)  == 0:
-            return False
-        else:
-            for measurement in self.measurement_list:
-                for item in measurement.ignore_exist_item_list:
+    def db_values_exist(self, values_dict): 
+        '''
+        判斷是不是全空值，insertion時用(self.db_row_id==None)
+        當成空值條件:
+        - textfield: ''是空值
+        - checkbox: 轉換後的None是空值(True、False會被留下)
+        '''
+        # ignore_list_final = []
+        for measurement in self.measurement_list:
+            for item in measurement.item_list:
+                if item not in measurement.ignore_exist_item_list:
+                    # 先取得資料庫的column_names對應
                     if str(item).strip() == '': # 如果item是空字串
                         db_key = f"{measurement.label}".replace(' ','_')
                     else:
                         db_key = f"{measurement.label}_{item}".replace(' ','_')  # 把空格處理掉 => 減少後續辨識錯誤
-                    ignore_list_final.append(db_key)
-        
-        ignore = set(values_dict.keys()).issubset(set(ignore_list_final))
-        return not ignore
+                    # 判斷是否為空值
+                    if type(values_dict[db_key])==str:
+                        if values_dict[db_key]!='':
+                            return True
+                    elif (values_dict[db_key]==True) or (values_dict[db_key]==False):
+                        return True
+        return False
 
 
     def db_migrate(self) -> bool: 
         '''
         偵測目前有沒有這個table沒有就建立，如果有column差異就新增?
         #### 需要注意引號與大小寫table name and column name => 目前設計是case sensitive
+        # TODO 目前未考慮型態變更
         '''
         
         # 偵測table
@@ -664,20 +694,22 @@ class Form(ft.Tab): #目的是擴增Tab的功能
             # 組合需要的欄位
             other_columns = ''
             for measurement in self.measurement_list:
-                for column_name in measurement.db_column_names:
-                    if measurement.control_type == ft.TextField:
+                for column_name in measurement.db_column_names():
+                    if measurement.control_type == ft.TextField: # FIXME 元件可以新增control，所以細節元件的type不一定等於measurement type
                         other_columns = other_columns + f' "{column_name}" text,'
                     elif measurement.control_type == ft.Checkbox:
                         other_columns = other_columns + f' "{column_name}" boolean,'
             
             # 創建table
             query = f'''CREATE TABLE IF NOT EXISTS "{self.label}" (
-                id serial PRIMARY KEY,
+                "{COLUMN_ID}" serial PRIMARY KEY,
                 "{COLUMN_TIME_CREATED}" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                 "{COLUMN_TIME_UPDATED}" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                 "{COLUMN_DOC}" varchar(8),
                 "{COLUMN_PATIENT_HISNO}" varchar(15) NOT NULL,
                 "{COLUMN_PATIENT_NAME}" varchar(20),
+                "{COLUMN_PATIENT_BIRTHDAY}" varchar(20),
+                "{COLUMN_PATIENT_AGE}" varchar(8),
                 {other_columns.rstrip(',')})'''
             try:
                 cursor.execute(query)
@@ -697,7 +729,7 @@ class Form(ft.Tab): #目的是擴增Tab的功能
             for c in cursor.description:
                 old_column_names.add(c.name)
             # 新column_names集合
-            new_column_names = set(self.db_column_names)
+            new_column_names = set(self.db_column_names())
             diff = new_column_names - old_column_names
             if len(diff) ==0:
                 logger.info(f"{inspect.stack()[0][3]}||Table[{self.label}] NO NEED FOR ADDING COLUMN!")
@@ -706,7 +738,7 @@ class Form(ft.Tab): #目的是擴增Tab的功能
                 # 將集合差值的column names搭配data type形成query => "{column_name}"使用雙引號: case-sensitive 
                 add_columns = ''
                 for measurement in self.measurement_list:
-                    for column_name in measurement.db_column_names:
+                    for column_name in measurement.db_column_names():
                         if column_name in diff:
                             if measurement.control_type == ft.TextField:
                                 add_columns = add_columns + f' ADD COLUMN "{column_name}" text,'
@@ -725,69 +757,86 @@ class Form(ft.Tab): #目的是擴增Tab的功能
         return True
         
 
-    def db_save(self, patient_hisno, *args, **kwargs):
-        patient_name = kwargs.get('patient_name', None)
-        values_dict = self.db_values_dict
-        
+    def db_save(self, patient_data:PatientData):
+        values_dict = self.db_values_dict()
+
+        if (self.db_row_id == None) and (self.db_values_exist(values_dict) == False): 
         # 如果沒有資料輸入(空白text or unchecked checkbox or 需要被ignore的欄位)就不送資料庫
-        if self.db_values_exist(values_dict) == False:
+        # 前提是insertion，如果是需要update，要考慮空值洗掉資料的需求
             return None
-        
 
         # 加入病人醫師基本資訊
         values_dict.update(
             {
                 COLUMN_DOC: self.doctor_id,
-                COLUMN_PATIENT_HISNO: patient_hisno,
-                COLUMN_PATIENT_NAME: patient_name,
+                COLUMN_PATIENT_HISNO: patient_data.hisno,
+                COLUMN_PATIENT_NAME: patient_data.name,
+                COLUMN_PATIENT_BIRTHDAY: patient_data.birthday,
+                COLUMN_PATIENT_AGE: patient_data.age
             }
         )
 
-        # psycopg parameterized SQL 因為防範SQL injection不支持欄位名稱有'%','(',')'
-        # try:
-        #     # 建立query
-        #     query = SQL("insert into {table} ({fields}) values ({values})").format(
-        #         table = Identifier(self.label),
-        #         fields = SQL(', ').join(map(Identifier, column_names)),
-        #         values = SQL(', ').join(map(Placeholder, column_names))
-        #     )
-        # except Exception as e:
-        #     print(e)
+        # psycopg parameterized SQL 因為防範SQL injection不支持欄位名稱有'%','(',')' => 改用自製query
         
         # 自製query
-        fields = ""
-        values = ""
-        for column in values_dict:
-            if (values_dict[column] != None) and (values_dict[column] != ''): # values_dict在measurement輸出層面應該檢查過是否有值，未來可移除None
-                fields = fields + f'"{column}", '
+        if self.db_row_id == None:
+            fields = ""
+            values = ""
+            for column in values_dict:
+                if (values_dict[column] != None) and (values_dict[column] != ''): ### values_dict在db_values_exist應該檢查過是否有值，未來可移除None
+                    fields = fields + f'"{column}", '
+                    if type(values_dict[column]) == str:
+                        values = values + f"'{values_dict[column]}', "
+                    elif values_dict[column] == None:
+                        values = values + f"NULL, "
+                    else:
+                        values = values + f"{values_dict[column]}, "
+            query = f'''INSERT INTO "{self.label}" ({fields.rstrip(', ')}) VALUES ({values.rstrip(', ')}) RETURNING {COLUMN_ID};'''
+        else:
+            query_parameters = ''
+            for column in values_dict:
                 if type(values_dict[column]) == str:
-                    values = values + f"'{values_dict[column]}', "
+                    query_parameters = query_parameters + f'''"{column}"='{values_dict[column]}', '''
+                elif values_dict[column] == None:
+                    query_parameters = query_parameters + f'''"{column}"=NULL, '''
                 else:
-                    values = values + f"{values_dict[column]}, "
-        query = f'''INSERT INTO "{self.label}" ({fields.rstrip(', ')}) VALUES ({values.rstrip(', ')})'''
+                    query_parameters = query_parameters + f'''"{column}"={values_dict[column]}, '''
+            
+            query_parameters = query_parameters + f'''"{COLUMN_TIME_UPDATED}"=NOW() '''
+            query = f'''UPDATE "{self.label}" SET {query_parameters} WHERE "{COLUMN_ID}"={self.db_row_id};'''
 
         try:
             # cursor.execute(query, values_dict) #因為前面定義過有標籤的placeholder，可以傳入dictionary => 不能使用因為自製query
-            t1 = time.perf_counter()
-            cursor.execute(query)
-            db_conn.commit()
-            t2 = time.perf_counter()
-            logger.debug(f'{inspect.stack()[0][3]}||Form[{self.label}]||Patient[{patient_hisno}]||Finish saving commit in {(t2-t1)*1000}ms')
+            if self.db_row_id == None:
+                t1 = time.perf_counter()
+                cursor.execute(query)
+                res = cursor.fetchone()
+                self.db_row_id = res[COLUMN_ID] # 存入後取得該row_id可以繼續update
+                db_conn.commit()
+                t2 = time.perf_counter()
+                logger.debug(f'{inspect.stack()[0][3]}||Form[{self.label}]||Patient[{patient_data.hisno}]||Finish INSERT in {(t2-t1)*1000}ms')
+            else:
+                t1 = time.perf_counter()
+                cursor.execute(query)
+                db_conn.commit()
+                t2 = time.perf_counter()
+                logger.debug(f'{inspect.stack()[0][3]}||Form[{self.label}]||Patient[{patient_data.hisno}]||Finish UPDATE in {(t2-t1)*1000}ms')
+
             return True
         except Exception as e:
-            logger.error(f"{inspect.stack()[0][3]}||Form[{self.label}]||Patient[{patient_hisno}]||Encounter exception: {e}")
+            logger.error(f"{inspect.stack()[0][3]}||Form[{self.label}]||Patient[{patient_data.hisno}]||Encounter exception: {e}")
             db_conn.rollback()
             return False
 
     
-    def db_load(self, patient_hisno, **kwargs):
+    def db_load(self, patient_data:PatientData):
         # 抓取符合醫師+病人的最新一筆資料
         query = SQL("SELECT * FROM {table} WHERE {doc}={doctor_id} AND {hisno}={patient_hisno} ORDER BY id DESC NULLS LAST LIMIT 1").format(
             table = Identifier(self.label),
             doc = Identifier(COLUMN_DOC),
             doctor_id = Literal(self.doctor_id),
             hisno = Identifier(COLUMN_PATIENT_HISNO),
-            patient_hisno = Literal(patient_hisno),
+            patient_hisno = Literal(patient_data.hisno),
         )
 
         try:
@@ -795,15 +844,19 @@ class Form(ft.Tab): #目的是擴增Tab的功能
             cursor.execute(query)
             row = cursor.fetchone()
             t2 = time.perf_counter()
-            logger.debug(f'{inspect.stack()[0][3]}||Form[{self.label}]||Patient[{patient_hisno}]||Loading query finished in {(t2-t1)*1000}ms')
+            logger.debug(f'{inspect.stack()[0][3]}||Form[{self.label}]||Patient[{patient_data.hisno}]||Loading query finished in {(t2-t1)*1000}ms')
             if row is None: # 沒有資料就回傳None
                 self.set_display(text="無資料可擷取")
                 return None
             self.data_load_db(dict(row)) # 設定measurement資料
             self.set_display(text=f"已擷取資料日期:{row[COLUMN_TIME_UPDATED].strftime('%Y-%m-%d %H:%M')}") # 顯示display:資料擷取日期
+            
+            if row[COLUMN_TIME_CREATED] >= (datetime.datetime.today() - INTERVAL_FOR_NEW_DB_ROW).astimezone(tz=None): # 在指定時效內此row可以作為update用途
+                self.db_row_id = row[COLUMN_ID] # 存下 row_id in order to update that row
+
             return True
         except Exception as e:
-            logger.error(f"{inspect.stack()[0][3]}||Form[{self.label}]||Patient[{patient_hisno}]||Encounter exception: {e}")
+            logger.error(f"{inspect.stack()[0][3]}||Form[{self.label}]||Patient[{patient_data.hisno}]||Encounter exception: {e}")
             return False
 
 
@@ -812,8 +865,6 @@ class Forms(): #集合Form(Tab)，包裝存、取、清除功能
         self.form_list_original = form_list # 儲存所有forms(不應變動)
         self.form_list_selected = list(form_list) # 會因為選擇fomrs而變動
         self.doctor_id = None
-        self.patient_hisno = None
-        self.patient_name = None
     
 
     def set_form_list_selected(self, form_names: List[str]):
@@ -831,17 +882,15 @@ class Forms(): #集合Form(Tab)，包裝存、取、清除功能
     #     pass
 
 
-    def set_doctor_id(self, doctor_id, *args):
+    def set_doctor_id(self, doctor_id):
         self.doctor_id = doctor_id
         for form in self.form_list_selected:
             form.set_doctor_id(doctor_id=doctor_id)
 
 
-    def set_patient_data(self, patient_hisno, patient_name, *args):
-        self.patient_hisno = patient_hisno
-        self.patient_name = patient_name
+    def reset_db_row_id(self):
         for form in self.form_list_selected:
-            form.set_patient_data(patient_hisno=patient_hisno, patient_name=patient_name)
+            form.reset_db_row_id()
 
 
     def data_opdformat_one(self): # 單一form格式化輸出
@@ -869,11 +918,14 @@ class Forms(): #集合Form(Tab)，包裝存、取、清除功能
             self.form_list_selected[tab_index].data_clear()
 
 
-    def data_exist(self):
-        for form in self.form_list_selected:
-            if form.data_exist():
-                return True
-        return False
+    def data_exist(self, tab_index = None):
+        if tab_index == None: # 判斷全部forms
+            for form in self.form_list_selected:
+                if form.data_exist():
+                    return True
+            return False
+        else:
+            return self.form_list_selected[tab_index].data_exist()
 
 
     def db_migrate(self): # 全部forms migrate
@@ -884,59 +936,64 @@ class Forms(): #集合Form(Tab)，包裝存、取、清除功能
         return res_string
 
     # 按下存檔按鈕時會抓取病人資料
-    def db_save(self, patient_hisno, tab_index = None, **kwargs): # 儲存form:整合儲存單一與全部
+    def db_save(self, patient_data:PatientData, tab_index = None): # 儲存form:整合儲存單一與全部
         error_list = []
+        empty_list = []
         if tab_index == None: # 全部
             for form in self.form_list_selected:
-                res = form.db_save(patient_hisno, **kwargs)
+                res = form.db_save(patient_data)
                 if res == None:
-                    logger.info(f"{inspect.stack()[0][3]}||Forms[{form.label}]||{self.doctor_id}||{patient_hisno}||Skip saving")
+                    logger.info(f"{inspect.stack()[0][3]}||Forms[{form.label}]||{self.doctor_id}||{patient_data.hisno}||Skip saving")
+                    empty_list.append(form.label)
                     form.data_clear() # 存完清除
                 elif res == False:
-                    logger.error(f"{inspect.stack()[0][3]}||Forms[{form.label}]||{self.doctor_id}||{patient_hisno}||Fail saving")
+                    logger.error(f"{inspect.stack()[0][3]}||Forms[{form.label}]||{self.doctor_id}||{patient_data.hisno}||Fail saving")
                     error_list.append(form.label)
                 else:
-                    logger.debug(f"{inspect.stack()[0][3]}||Forms[{form.label}]||{self.doctor_id}||{patient_hisno}||Finish saving")
+                    logger.debug(f"{inspect.stack()[0][3]}||Forms[{form.label}]||{self.doctor_id}||{patient_data.hisno}||Finish saving")
                     form.data_clear() # 存完清除
         else: # 單一
-            res = self.form_list_selected[tab_index].db_save(patient_hisno, **kwargs)
+            res = self.form_list_selected[tab_index].db_save(patient_data)
             if res == None:
-                logger.info(f"{inspect.stack()[0][3]}||Forms[{self.form_list_selected[tab_index].label}]||{self.doctor_id}||{patient_hisno}||Skip saving")
+                logger.info(f"{inspect.stack()[0][3]}||Forms[{self.form_list_selected[tab_index].label}]||{self.doctor_id}||{patient_data.hisno}||Skip saving")
+                empty_list.append(form.label)
                 self.form_list_selected[tab_index].data_clear() # 存完清除
             elif res == False:
-                logger.error(f"{inspect.stack()[0][3]}||Forms[{self.form_list_selected[tab_index].label}]||{self.doctor_id}||{patient_hisno}||Fail saving")
+                logger.error(f"{inspect.stack()[0][3]}||Forms[{self.form_list_selected[tab_index].label}]||{self.doctor_id}||{patient_data.hisno}||Fail saving")
                 error_list.append(self.form_list_selected[tab_index].label)
             else:
-                logger.debug(f"{inspect.stack()[0][3]}||Forms[{self.form_list_selected[tab_index].label}]||{self.doctor_id}||{patient_hisno}||Finish saving")
+                logger.debug(f"{inspect.stack()[0][3]}||Forms[{self.form_list_selected[tab_index].label}]||{self.doctor_id}||{patient_data.hisno}||Finish saving")
                 self.form_list_selected[tab_index].data_clear() # 存完清除
         
-        return error_list
+        return error_list, empty_list # 回傳給GUI做notify
 
 
-    def db_load(self, patient_hisno, tab_index = None, **kwargs): # 讀取form:整合讀取單一與全部
+    def db_load(self, patient_data:PatientData, tab_index = None): # 讀取form:整合讀取單一與全部
         error_list = []
-        # TODO load之前應該要判斷 Forms exist，如果存在要返回警告，選擇強制清除就繼續
+        empty_list = []
         if tab_index == None: # 全部
             for form in self.form_list_selected:
-                res = form.db_load(patient_hisno, **kwargs)
+                res = form.db_load(patient_data)
                 if res == None:
-                    logger.info(f"{inspect.stack()[0][3]}||{form.label}||{self.doctor_id}||{patient_hisno}||Empty record")
+                    logger.info(f"{inspect.stack()[0][3]}||{form.label}||{self.doctor_id}||{patient_data.hisno}||Empty record")
+                    empty_list.append(form.label) 
                 elif res == False:
-                    logger.error(f"{inspect.stack()[0][3]}||{form.label}||{self.doctor_id}||{patient_hisno}||Fail loading")
+                    logger.error(f"{inspect.stack()[0][3]}||{form.label}||{self.doctor_id}||{patient_data.hisno}||Fail loading")
                     error_list.append(form.label)
                 else:
-                    logger.debug(f"{inspect.stack()[0][3]}||{form.label}||{self.doctor_id}||{patient_hisno}||Finish loading")
+                    logger.debug(f"{inspect.stack()[0][3]}||{form.label}||{self.doctor_id}||{patient_data.hisno}||Finish loading")
         else: # 單一
-            res = self.form_list_selected[tab_index].db_load(patient_hisno, **kwargs)
+            res = self.form_list_selected[tab_index].db_load(patient_data)
             if res == None:
-                logger.info(f"{inspect.stack()[0][3]}||{self.form_list_selected[tab_index].label}||{self.doctor_id}||{patient_hisno}||Empty record")
+                logger.info(f"{inspect.stack()[0][3]}||{self.form_list_selected[tab_index].label}||{self.doctor_id}||{patient_data.hisno}||Empty record")
+                empty_list.append(form.label) 
             elif res == False:
-                logger.error(f"{inspect.stack()[0][3]}||{self.form_list_selected[tab_index].label}||{self.doctor_id}||{patient_hisno}||Fail loading")
+                logger.error(f"{inspect.stack()[0][3]}||{self.form_list_selected[tab_index].label}||{self.doctor_id}||{patient_data.hisno}||Fail loading")
                 error_list.append(self.form_list_selected[tab_index].label)
             else:
-                logger.debug(f"{inspect.stack()[0][3]}||{self.form_list_selected[tab_index].label}||{self.doctor_id}||{patient_hisno}||Finish loading")
+                logger.debug(f"{inspect.stack()[0][3]}||{self.form_list_selected[tab_index].label}||{self.doctor_id}||{patient_data.hisno}||Finish loading")
             
-        return error_list # 回傳給GUI做notify
+        return error_list, empty_list # 回傳給GUI做notify
 
 
     # def db_load_all(self, patient_hisno, *args, **kwargs): # 全部forms 讀取 => 暫時不用
@@ -1021,14 +1078,14 @@ form_dryeye = Form(
         Measurement_Check('PHx', ['DM', 'Hyperlipidemia', 'Sjogren','GVHD', 'AlloPBSCT', 'Seborrheic','Smoking', 'CATA', 'Refractive', 'IPL'], compact=True, format_region='s'),
         Measurement_Text('Shirmer 1', format_func=format_shirmer1),
         Measurement_Text('TBUT', format_func=format_text_2score),
-        Measurement_Text('NEI', format_func=format_text_2score),
+        Measurement_Text('NEI'),
         Measurement_Check('MCJ_displacement', ['OD','OS'], compact=True),
         Measurement_Text('Telangiectasia'),
         Measurement_Check('MG plugging', ['OD','OS'], compact=True),
         Measurement_Text('Meibum', multiline=True),
         Measurement_Text('Mei_EXP'),
         Measurement_Text('LLT', format_func=format_text_2score),
-        Measurement_Text('Blinking', format_func=format_text_2score),
+        Measurement_Text('Blinking'),
         Measurement_Text('MG atrophy(OD)',['upper','lower'], format_func=format_text_parentheses),
         Measurement_Text('MG atrophy(OS)',['upper','lower'], format_func=format_text_parentheses),
         Measurement_Text('Lipidview', multiline=True),
@@ -1042,8 +1099,22 @@ form_ipl = Form(
     label="IPL",
     measurement_list=[
         Measurement_Text('IPL NO', '', format_region='p'),
+        Measurement_Check('Post-IPL', [''], compact=True),
         Measurement_Text('Massage(OD)', ['upper','lower'], format_region='p'),
-        Measurement_Text('Massage(OS)', ['upper','lower'], format_region='p')
+        Measurement_Text('Massage(OS)', ['upper','lower'], format_region='p'),
+        Measurement_Check('Improved Symptoms', ['dry eye', 'dry mouth', 'pain','photophobia','tearing','discharge'], compact=True),
+        Measurement_Text('Other Symptoms', '', multiline=True),
+        Measurement_Check('Improved QoL', ['driving', 'reading', 'work', 'outdoor', 'depressed']),
+        Measurement_Text('SPEED', ''),
+        Measurement_Text('OSDI', ''),
+        Measurement_Text('Shirmer 1', format_func=format_shirmer1),
+        Measurement_Text('TBUT', format_func=format_text_2score),
+        Measurement_Text('NEI'),
+        Measurement_Check('MCJ_displacement', ['OD','OS'], compact=True),
+        Measurement_Text('Telangiectasia'),
+        Measurement_Check('MG plugging', ['OD','OS'], compact=True),
+        Measurement_Text('Meibum', multiline=True),
+        Measurement_Text('Mei_EXP'),
     ]
 )
 

@@ -1,8 +1,12 @@
+from typing import Any, List, Optional, Union
 import flet as ft
 from flet import Page
 import datetime
 import time
 import subprocess
+from flet_core.control import Control, OptionalNumber
+from flet_core.ref import Ref
+from flet_core.types import AnimationValue, ClipBehavior, OffsetValue, ResponsiveNumber, RotateValue, ScaleValue
 import uiautomation as auto
 # forms listed in SDES_form
 import SDES_form
@@ -18,95 +22,58 @@ PROCESS_NAME = 'vghtpe.dcr.win.exe'
 # Settings of updater
 OWNER = 'zmh00'
 REPO = 'SDES'
-VERSION_TAG = 'v1.2.2'
+VERSION_TAG = 'v1.3.3'
 TARGET_FILE = 'SDES'
 ALERT_TITLE = 'SDES Updater'
 
 
-def process_exists(process_name=PROCESS_NAME):
-    '''
-    Check if a program (based on its name) is running
-    Return yes/no exists window and its PID
-    '''
-    call = 'TASKLIST', '/FI', 'imagename eq %s' % process_name
-    # use buildin check_output right away
-    output = subprocess.check_output(call).decode(
-        'big5')  # 在中文的console中使用需要解析編碼為big5
-    output = output.strip().split('\r\n')
-    if len(output) == 1:  # 代表只有錯誤訊息
-        return False, 0
-    else:
-        # check in last line for process name
-        last_line_list = output[-1].lower().split()
-    return last_line_list[0].startswith(process_name.lower()), last_line_list[1]
+PatientDataClass = SDES_form.PatientData
+patient_previous_data = PatientDataClass(hisno=None)
+patient_now_data = None
 
 
-def process_responding(name=PROCESS_NAME):
-    """Check if a program (based on its name) is responding"""
-    cmd = 'tasklist /FI "IMAGENAME eq %s" /FI "STATUS eq running"' % name
-    status = subprocess.Popen(cmd, stdout=subprocess.PIPE).stdout.read()
-    status = str(status).lower() # case insensitive
-    return name in status
-
-
-def process_responding_PID(pid):
-    """Check if a program (based on its PID) is responding"""
-    cmd = 'tasklist /FI "PID eq %d" /FI "STATUS eq running"' % pid
-    status = subprocess.Popen(cmd, stdout=subprocess.PIPE).stdout.read()
-    status = str(status).lower()
-    return str(pid) in status
-
-
-def captureimage(control = None, postfix = ''):
-    auto.Logger.WriteLine('CAPTUREIMAGE INITIATION', auto.ConsoleColor.Yellow)
-    if control is None:
-        c = auto.GetRootControl()
-    else:
-        c = control
-    if postfix == '':
-        path = f"{datetime.datetime.today().strftime('%Y%m%d_%H%M%S')}.png"
-    else:
-        path = f"{datetime.datetime.today().strftime('%Y%m%d_%H%M%S')}_{postfix}.png"
-    c.CaptureToImage(path)
-
-
-def patient_data_autoset(patient_hisno: ft.TextButton, patient_name: ft.Text, patient_hisno_manual: ft.TextField, toggle_func, load_func): # TODO refactor the parameters and structure
-    old_p_dict = None
+def patient_data_from_opd(patient_hisno: ft.TextButton, patient_name: ft.Text, patient_hisno_manual: ft.TextField, toggle_func, load_func): 
+    global patient_now_data, patient_previous_data
     state = -1
     with auto.UIAutomationInitializerInThread():
         while(1):
             try:
                 window_soap = auto.WindowControl(searchDepth=1, AutomationId="frmSoap")
                 if window_soap.Exists():
-                    l = window_soap.Name.split()
-                    p_dict = {
-                        'hisno': l[0],
-                        'name': l[1],
-                        'id': l[6], 
-                        'charge': l[5],
-                        'birthday': l[4][1:-1],
-                        'age': l[3][:2]
-                    }
-                    if p_dict != old_p_dict: # 找到新病人
+                    t = window_soap.Name.split()
+                    
+                    patient_now_data = PatientDataClass(hisno=t[0], name=t[1], birthday=t[4][1:-1], age=t[3][:2])
+                    # {
+                    #     SDES_form.COLUMN_PATIENT_HISNO: t[0],
+                    #     SDES_form.COLUMN_PATIENT_NAME: t[1],
+                    #     SDES_form.COLUMN_PATIENT_BIRTHDAY: t[4][1:-1],
+                    #     SDES_form.COLUMN_PATIENT_AGE: t[3][:2],
+                    #     # 'id': t[6], 
+                    #     # 'charge': t[5],
+                    # }
 
-                        SDES_form.forms.data_clear() # 新病人開始讀取前要先清除上一個病人資訊 # TODO 應該要有alert讓使用者自己選
-                        
-                        patient_hisno.content.value = p_dict['hisno']
-                        patient_name.value = p_dict['name']
-                        old_p_dict = p_dict
+                    if patient_now_data != patient_previous_data: # 找到新病人
+
+                        # 更新資料顯示 => 影響後續函數獲取病人資訊 patient_data
+                        patient_hisno.content.value = patient_now_data.hisno
+                        patient_name.value = patient_now_data.name
                         if patient_hisno.visible == False:
-                            toggle_func() # 切換函數，需要研究如何呼叫較適合
+                            toggle_func() # 切換顯示函數
                             patient_hisno_manual.value = '' # 清空manual的資料
                         else:
                             patient_hisno.update()
                             patient_name.update()
-                        
+
+                        # 讀取資料新病人資料 => 若有未儲存資料跳警告處理
                         load_func()  # 讀取此病人單一或全部表單
+                        
+                        # 寫入舊病人資料
+                        patient_previous_data = patient_now_data
 
                     else:
                         if state != 1: # 找過一樣的data
                             state = 1
-                            auto.Logger.WriteLine(f"Same Patient Data", auto.ConsoleColor.Yellow)
+                            auto.Logger.WriteLine(f"Same Patient Data:{patient_now_data.hisno}||{patient_now_data.name}", auto.ConsoleColor.Yellow)
                 else:
                     if state != 0: # 找不到window frmSoap
                         state = 0
@@ -155,7 +122,7 @@ def set_text(panel, text_input:str, location, replace) -> str:
             edit_control = window_soap.PaneControl(searchDepth=1, AutomationId=parameters[panel][0]).EditControl(searchDepth=1, AutomationId=parameters[panel][1])
             if edit_control.Exists():
                 text_original = edit_control.GetValuePattern().Value
-                print(f"original text: {text_original}") # FIXME 可移除
+                
                 if replace == 1:
                     text = text_input
                 else:
@@ -175,8 +142,6 @@ def set_text(panel, text_input:str, location, replace) -> str:
                 auto.Logger.WriteLine(f"No edit control", auto.ConsoleColor.Red)
                 raise Exception("No edit control")
 
-
-        
 
 def main(page: Page):
     #################################################### functions
@@ -223,7 +188,6 @@ def main(page: Page):
         page.update()
         time.sleep(delay)
 
-
     def setting_form_submit(e=None):
         '''
         The on_click event of apply settings button in setting_form
@@ -249,7 +213,6 @@ def main(page: Page):
         view_pop()
         test_db()
 
-    
     def setting_connection_submit(e=None):
         '''
         The on_click event of apply settings button in setting_connection
@@ -272,7 +235,6 @@ def main(page: Page):
         view_pop()
         test_db()
 
-
     def setting_form_checkall(e=None):
         '''
         勾選或取消所有forms時會一次設定其他checkbox
@@ -286,7 +248,6 @@ def main(page: Page):
                 control.value = False
             setting_form_checkbox.update()
 
-    
     def setting_form_uncheckall(e=None):
         '''
         有任一checkbox uncheck要uncheck activate all
@@ -294,7 +255,6 @@ def main(page: Page):
         if setting_form_allbox.value == True and e.control.value == False:
             setting_form_allbox.value = False
             setting_form_allbox.update()
-
 
     def setting_connection_db_migrate(e=None):
         '''
@@ -307,29 +267,49 @@ def main(page: Page):
         dlg_migration.open = True
         page.update()
 
-    # TODO 未來功能
-    # def dlg_overwrite_show(e=None):
-    #     page.dialog = dlg_overwrite
-    #     dlg_overwrite.open = True
-    #     page.update()
+    def on_change_patient_hisno_manual(e=None):
+        pass
+        # SDES_form.forms.reset_db_row_id()
+        # SDES_form.forms.data_clear() # UX不好
+    
+    def on_submit_patient_hisno_manual(e=None):
+        load_db()
+
+    
+    def dlg_overwrite_show(e=None):
+        page.dialog = dlg_overwrite
+        dlg_overwrite.open = True
+        page.update()
 
 
-    # def dlg_overwrite_hide(e=None):
-    #     dlg_overwrite.open = False
-    #     page.update()
+    def dlg_overwrite_hide(e=None):
+        dlg_overwrite.open = False
+        page.update()
 
 
-    # # dialog overwrite
-    # dlg_overwrite = ft.AlertDialog(
-    #     title=ft.Text("資料未儲存"),
-    #     content=ft.Text("如何處理未儲存資料?"),
-    #     modal=False,
-    #     actions=[
-    #         ft.TextButton("存入資料庫", on_click=save_db),
-    #         ft.TextButton("捨棄資料", on_click=clear_forms),
-    #     ],
-    # )
+    def dlg_overwrite_ignore(e=None):
+        dlg_overwrite_hide()
+        SDES_form.forms.data_clear() # 把資料清掉
+        load_db() # 前面load_db因為non-blocking先return等這邊決定完繼續
 
+
+    def dlg_overwrite_save(e=None):
+        dlg_overwrite_hide()
+        save_db(patient=patient_previous_data) # 儲存+清空表單
+        load_db() # 前面load_db因為non-blocking先return等這邊決定完繼續load
+
+
+    # dialog overwrite
+    dlg_overwrite = ft.AlertDialog(
+        title=ft.Text("上位病人資料未儲存"),
+        content=ft.Text("如何處理未儲存資料?"),
+        modal=False,
+        actions=[
+            ft.TextButton("寫入資料庫", on_click=dlg_overwrite_save),
+            ft.TextButton("捨棄資料", on_click=dlg_overwrite_ignore),
+        ],
+        actions_alignment=ft.MainAxisAlignment.CENTER,
+    )
 
     # dialog migration
     dlg_migration = ft.AlertDialog(
@@ -353,7 +333,7 @@ def main(page: Page):
             ft.dropdown.Option(key=2, text='民國紀年'),
             ft.dropdown.Option(key=3, text='西元紀年(2位數)'),
         ],
-        dense=True, height=45, content_padding = 10, value=-1
+        dense=True, height=45, content_padding = 10, value=0
     )
     
     setting_connection_doctorid = ft.TextField(label="Doctor ID", hint_text="Please enter short code of doctor ID(EX:4123)", dense=True, height=45, on_submit=setting_connection_submit, autofocus=True)
@@ -548,6 +528,9 @@ def main(page: Page):
         border=ft.InputBorder.UNDERLINE,
         filled=True,
         width=300,
+        # on_change=on_change_patient_hisno_manual,
+        on_submit=on_submit_patient_hisno_manual,
+        # on_blur=on_change_patient_hisno_manual,
     )
     patient_row_manual = ft.Row(
         controls=[
@@ -574,7 +557,8 @@ def main(page: Page):
         # on_hover=
     )
     patient_name = ft.Text("擷取病人姓名", style=ft.TextThemeStyle.HEADLINE_MEDIUM, text_align='center', visible=True)
-    patient_column = ft.Column(
+    
+    patient_column = ft.Column( # Comprise all the patient information
         controls=[
             patient_row_manual, 
             patient_hisno,
@@ -606,69 +590,91 @@ def main(page: Page):
     ########################## submit functions
 
     def patient_data_check() -> dict:
-        return_dict = {
-            'patient_hisno': None,
-            'patient_name': None,
-        }
-        if patient_hisno.visible == False: # 手動輸入病人資訊
-            _patient_hisno = str(patient_hisno_manual.value).strip()
-            if _patient_hisno =='':
+        '''病患資料的再確認
+        - 確認是否有資料(手動或自動)
+        - 如果是手動輸入資料要放到 patient_now_dict
+        '''
+        global patient_now_data
+
+        if patient_hisno.visible == False: # 手動模式
+            _hisno = str(patient_hisno_manual.value).strip()
+            if _hisno =='':
                 notify("未輸入病人病歷號")
                 return False
             else:
-                return_dict['patient_hisno'] = _patient_hisno
-        else: # 病人資訊自動模式
-            _patient_hisno = patient_hisno.content.value
-            _patient_name = patient_name.value
-            if _patient_hisno == '擷取病歷號':
+                patient_now_data = PatientDataClass(hisno=_hisno)
+
+        else: # 自動模式 => 資料應該要在patient_data_from_opd設定好了
+            _hisno = patient_hisno.content.value
+            if _hisno == '擷取病歷號':
                 notify("無法取得病人病歷號")
                 return False
-            else:
-                return_dict['patient_hisno'] = _patient_hisno
-                return_dict['patient_name'] = _patient_name
-        return return_dict
+            elif _hisno != patient_now_data.hisno: # 目前自動擷取欄位和patient_now_dict內資料不同 => 如果出現需要debug
+                SDES_form.logger.error("!!!!!!病人資訊異常!!!!!!") # FIXME
+        
+        return True
 
 
     def load_db(e=None):
-        patient = patient_data_check()
-        if patient != False:
-            if setting_connection_loadbutton.value == False:
-                # TODO 應該要有警告資料複寫
-                # SDES_form.forms.data_clear() # 不論load一或多個都應該清掉全部
-                # SDES_form.forms.data_clear(tab_index=tabs.selected_index)
-                error_list = SDES_form.forms.db_load(patient_hisno=patient['patient_hisno'], tab_index=tabs.selected_index) # 讀取單一
+        global patient_previous_data
+        check = patient_data_check()
+        if check != False:
+            if setting_connection_loadbutton.value == False: # 讀取單一Form
+                tab_index = tabs.selected_index
             else:
-                # TODO 應該要有警告資料複寫
-                # SDES_form.forms.data_clear() # 不論load一或多個都應該清掉全部
-                error_list = SDES_form.forms.db_load(patient_hisno=patient['patient_hisno']) # 讀取全部
-            if len(error_list) !=0:
-                notify(f"讀取資料失敗:{error_list}", delay=1.5)
+                tab_index = None
+            if (patient_now_data != patient_previous_data) and SDES_form.forms.data_exist(tab_index=tab_index): # 有新病人+未儲存資料 => 跳警告
+                dlg_overwrite_show() # 選擇存資料或拋棄資料
+                return # 如果不return程序會繼續 => flet是non-blocking設計
+            
+            SDES_form.forms.data_clear() # 不論load一或多個都應該清掉全部 => 如果沒清乾淨的應該都會在上面跳警告 這行應該不必要 # FIXME
+            SDES_form.forms.reset_db_row_id() # 清除上一個病人每個form的db_row_id
+            error_list, empty_list = SDES_form.forms.db_load(patient_data=patient_now_data, tab_index=tab_index) # 讀取db
+            patient_previous_data = patient_now_data # FIXME 應該放這嗎?
+            
+            if len(error_list) !=0: # 有失敗優先顯示
+                notify(f"讀取資料失敗: {error_list}", delay=1.5)
+            elif len(empty_list) !=0:
+                notify(f"無資料可讀取: {empty_list}", delay=1.0)
             else:
-                notify("讀取資料成功") # TODO 如果沒有資料是不是要另外notify沒有資料?
+                notify("讀取資料成功")
+        
 
     
-    def save_db(e=None, patient = None):
-        if patient == None:
-            patient = patient_data_check()
-        if patient != False:
+    def save_db(e=None, patient: PatientDataClass = None):
+        '''
+        存到資料庫 => 存完內含清除表單功能
+        '''
+        global patient_previous_data
+        check = patient_data_check()
+        if check != False: # 有patient資料
+            if setting_connection_savebutton.value == False: # 存單一Form
+                tab_index = tabs.selected_index
+            else:
+                tab_index = None
+
+            if patient == None: # 如果沒有傳入patient參數預設使用patient_now_data
+                if (patient_now_data != patient_previous_data) and SDES_form.forms.data_exist(tab_index=tab_index): # 為了解決如果讀取上一個病人資訊然後直接按寫入，應該要能insert一筆新的
+                    SDES_form.forms.reset_db_row_id()
+                patient = patient_now_data
+            
             try:
-                # 決定存一個或全部forms
-                if setting_connection_savebutton.value == False:
-                    error_list = SDES_form.forms.db_save(**patient, tab_index=tabs.selected_index) # 儲存單一forms
-                else:
-                    error_list = SDES_form.forms.db_save(**patient)  # 傳入{'patient_hisno':..., 'patient_name':...,} # 儲存全部forms
+                error_list, empty_list = SDES_form.forms.db_save(patient_data=patient, tab_index=tabs.selected_index) # 儲存form 
+                patient_previous_data = patient_now_data 
                 if len(error_list) !=0:
                     notify(f"資料寫入資料庫失敗:{error_list}", delay=1.5)
+                elif len(empty_list) !=0:
+                    notify(f"無資料可寫入: {empty_list}", delay=1.0)
                 else:
-                    notify("資料寫入資料庫成功")
+                    notify("資料寫入資料庫成功", delay=1.0)
             except Exception as e:
                 SDES_form.logger.error(e)
                 notify("資料寫入資料庫異常", delay=1.5)
 
 
     def save_opd_db(e=None):
-        patient = patient_data_check()
-        if patient != False:
+        check = patient_data_check()
+        if check != False:
             # save to opd
             format_dict = SDES_form.forms.data_opdformat()
             try:
@@ -681,13 +687,17 @@ def main(page: Page):
                 notify("資料寫入門診系統失敗", delay=1.5)
 
         # 存入資料庫      
-        save_db(patient=patient)
+        save_db(patient = patient_now_data)
 
 
     def clear_forms(e=None):
+        '''
+        清除表格內容且重設(SDES_form.forms.reset_db_row_id()) => 讓新紀錄可以insertion
+        '''
         try:
             SDES_form.forms.data_clear()
-            notify("已清除所有表格")
+            SDES_form.forms.reset_db_row_id()
+            notify("已清除所有表格內容且同一病人會創建新紀錄")
         except Exception as e:
             notify("清除表格異常", delay=1.5)
 
@@ -748,7 +758,7 @@ def main(page: Page):
     )
     setting_form_show()
     #################################################### Other functions
-    patient_data_autoset(patient_hisno, patient_name, patient_hisno_manual, toggle_func=toggle_patient_data, load_func=load_db) # 這些函數會被開一個thread執行，所以不會阻塞
+    patient_data_from_opd(patient_hisno, patient_name, patient_hisno_manual, toggle_func=toggle_patient_data, load_func=load_db) # 這些函數會被開一個thread執行，所以不會阻塞
 
 
 def close_db():
