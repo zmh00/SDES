@@ -82,9 +82,34 @@ def db_connect():
     global db_conn
     global cursor
     try:
+        # 偵測database
+        query_db_exists = f'''
+        SELECT EXISTS( 
+            SELECT datname FROM pg_catalog.pg_database WHERE datname = '{DBNAME}'
+        );'''
+        query_db_create = f'''
+        CREATE DATABASE {DBNAME};
+        '''
+        
+        t_conn = psycopg2.connect(host=HOST, dbname='postgres', user=USER, password=PASSWORD, port = PORT)
+        t_cursor = t_conn.cursor(cursor_factory = RealDictCursor)
+        t_cursor.execute(query_db_exists)
+        t_conn.commit() # 
+        exists_db = t_cursor.fetchone()['exists']
+        if exists_db == False:
+            t_conn.autocommit = True
+            t_cursor.execute(query_db_create)
+            logger.info(f"{inspect.stack()[0][3]}||[{DBNAME}] Database builded")
+            t_conn.close()
+        else:
+            logger.info(f"{inspect.stack()[0][3]}||[{DBNAME}] Database exists")
         db_conn = psycopg2.connect(host=HOST, dbname=DBNAME, user=USER, password=PASSWORD, port = PORT)
         cursor = db_conn.cursor(cursor_factory = RealDictCursor)
-        logger.info(f"{inspect.stack()[0][3]}||Connect [{DBNAME}] database successfully!")
+        logger.info(f"{inspect.stack()[0][3]}||[{DBNAME}] Connect database successfully!")
+        # except Exception as error:
+        #     t_conn.rollback()
+        #     logger.error(f"{inspect.stack()[0][3]}||Error in building database: {error}")
+        #     return False
     except Exception as e:
         logger.error(f"{inspect.stack()[0][3]}||Encounter exception: {e}")
 
