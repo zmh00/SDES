@@ -3,10 +3,7 @@ import flet as ft
 from flet import Page
 import datetime
 import time
-import subprocess
-from flet_core.control import Control, OptionalNumber
-from flet_core.ref import Ref
-from flet_core.types import AnimationValue, ClipBehavior, OffsetValue, ResponsiveNumber, RotateValue, ScaleValue
+# import subprocess
 import uiautomation as auto
 # forms listed in SDES_form
 import SDES_form
@@ -22,17 +19,17 @@ PROCESS_NAME = 'vghtpe.dcr.win.exe'
 # Settings of updater
 OWNER = 'zmh00'
 REPO = 'SDES'
-VERSION_TAG = 'v1.3.3'
+VERSION_TAG = 'v1.3.4'
 TARGET_FILE = 'SDES'
 ALERT_TITLE = 'SDES Updater'
 
 
 PatientDataClass = SDES_form.PatientData
 patient_previous_data = PatientDataClass(hisno=None)
-patient_now_data = None
+patient_now_data = PatientDataClass(hisno=None)
 
 
-def patient_data_from_opd(patient_hisno: ft.TextButton, patient_name: ft.Text, patient_hisno_manual: ft.TextField, toggle_func, load_func): 
+def patient_data_from_opd(patient_hisno: ft.TextButton, patient_name: ft.Text, patient_hisno_manual: ft.TextField, toggle_func, load_func, dlg_overwrite): 
     global patient_now_data, patient_previous_data
     state = -1
     with auto.UIAutomationInitializerInThread():
@@ -64,11 +61,15 @@ def patient_data_from_opd(patient_hisno: ft.TextButton, patient_name: ft.Text, p
                             patient_hisno.update()
                             patient_name.update()
 
-                        # 讀取資料新病人資料 => 若有未儲存資料跳警告處理
-                        load_func()  # 讀取此病人單一或全部表單
-                        
-                        # 寫入舊病人資料
-                        patient_previous_data = patient_now_data
+                        # FIXME 確認目前沒有需要寫入資訊才load?
+                        if dlg_overwrite.open == False:
+                            # 讀取資料新病人資料 => 若有未儲存資料跳警告處理
+                            load_func()  # 讀取此病人單一或全部表單
+                            
+                            print(f"patient_data_from_opd::patient_previous_data = {patient_previous_data.hisno}; patient_now_data = {patient_now_data.hisno}") # FIXME
+
+                            # # 寫入舊病人資料 => 會在load_db內處理好
+                            # patient_previous_data = patient_now_data
 
                     else:
                         if state != 1: # 找過一樣的data
@@ -278,6 +279,12 @@ def main(page: Page):
     
     def dlg_overwrite_show(e=None):
         page.dialog = dlg_overwrite
+        text = f"病歷號: {patient_previous_data.hisno}\n"
+        name = patient_previous_data.data_dict.get(SDES_form.COLUMN_PATIENT_NAME, None)
+        if name != None and name != '':
+            text = text + f"姓名: {name}\n"
+        
+        dlg_overwrite.content.value = f"如何處理上位病人修改未儲存資料?\n{text}"
         dlg_overwrite.open = True
         page.update()
 
@@ -301,8 +308,8 @@ def main(page: Page):
 
     # dialog overwrite
     dlg_overwrite = ft.AlertDialog(
-        title=ft.Text("上位病人資料未儲存"),
-        content=ft.Text("如何處理未儲存資料?"),
+        title=ft.Text("資料未儲存"),
+        content=ft.Text(),
         modal=False,
         actions=[
             ft.TextButton("寫入資料庫", on_click=dlg_overwrite_save),
@@ -590,7 +597,8 @@ def main(page: Page):
     ########################## submit functions
 
     def patient_data_check() -> dict:
-        '''病患資料的再確認
+        '''
+        病患資料的再確認
         - 確認是否有資料(手動或自動)
         - 如果是手動輸入資料要放到 patient_now_dict
         '''
@@ -602,7 +610,10 @@ def main(page: Page):
                 notify("未輸入病人病歷號")
                 return False
             else:
-                patient_now_data = PatientDataClass(hisno=_hisno)
+                if _hisno == patient_previous_data.hisno: # 舊的這樣才能保留前面的db_row_id等讀取過的資訊
+                    patient_now_data = patient_previous_data
+                else:  # 新的就可以隨意
+                    patient_now_data = PatientDataClass(hisno=_hisno)
 
         else: # 自動模式 => 資料應該要在patient_data_from_opd設定好了
             _hisno = patient_hisno.content.value
@@ -623,14 +634,18 @@ def main(page: Page):
                 tab_index = tabs.selected_index
             else:
                 tab_index = None
-            if (patient_now_data != patient_previous_data) and SDES_form.forms.data_exist(tab_index=tab_index): # 有新病人+未儲存資料 => 跳警告
-                dlg_overwrite_show() # 選擇存資料或拋棄資料
-                return # 如果不return程序會繼續 => flet是non-blocking設計
             
-            SDES_form.forms.data_clear() # 不論load一或多個都應該清掉全部 => 如果沒清乾淨的應該都會在上面跳警告 這行應該不必要 # FIXME
-            SDES_form.forms.reset_db_row_id() # 清除上一個病人每個form的db_row_id
+            if (patient_now_data != patient_previous_data) and SDES_form.forms.data_exist(tab_index=tab_index): # 有新病人+未儲存資料 => 跳警告
+                if SDES_form.forms.db_values_dict(tab_index=tab_index) != patient_previous_data.db_loaded_dict: # 未儲存資料和該使用者上筆資料不同才跳警告 =>這邊會遇到取單一和取全部的問題
+                    dlg_overwrite_show() # 選擇存資料或拋棄資料
+                    return # 如果不return程序會繼續 => flet是non-blocking設計
+            # else: # FIXME測試用
+            #     print(f"load_db_else::patient_now_data:{patient_now_data.hisno}\npatient_previous_data:{patient_previous_data.hisno}\ndata_exist{SDES_form.forms.data_exist(tab_index=tab_index)}")
+            
+            SDES_form.forms.data_clear() # 不論load一或多個都應該清掉全部
+
             error_list, empty_list = SDES_form.forms.db_load(patient_data=patient_now_data, tab_index=tab_index) # 讀取db
-            patient_previous_data = patient_now_data # FIXME 應該放這嗎?
+            patient_previous_data = patient_now_data 
             
             if len(error_list) !=0: # 有失敗優先顯示
                 notify(f"讀取資料失敗: {error_list}", delay=1.5)
@@ -652,15 +667,14 @@ def main(page: Page):
                 tab_index = tabs.selected_index
             else:
                 tab_index = None
-
-            if patient == None: # 如果沒有傳入patient參數預設使用patient_now_data
-                if (patient_now_data != patient_previous_data) and SDES_form.forms.data_exist(tab_index=tab_index): # 為了解決如果讀取上一個病人資訊然後直接按寫入，應該要能insert一筆新的
-                    SDES_form.forms.reset_db_row_id()
-                patient = patient_now_data
-            
             try:
-                error_list, empty_list = SDES_form.forms.db_save(patient_data=patient, tab_index=tabs.selected_index) # 儲存form 
-                patient_previous_data = patient_now_data 
+                if patient == None: # 如果沒有傳入patient參數預設使用patient_now_data
+                    # if (patient_now_data != patient_previous_data) and SDES_form.forms.data_exist(tab_index=tab_index): # 為了解決如果讀取上一個病人資訊然後直接按寫入，應該要能insert一筆新的
+                    #     SDES_form.forms.reset_db_row_id()
+                    patient = patient_now_data
+
+                error_list, empty_list = SDES_form.forms.db_save(patient_data=patient, tab_index=tab_index) # 儲存form 
+                patient_previous_data = patient 
                 if len(error_list) !=0:
                     notify(f"資料寫入資料庫失敗:{error_list}", delay=1.5)
                 elif len(empty_list) !=0:
@@ -694,9 +708,10 @@ def main(page: Page):
         '''
         清除表格內容且重設(SDES_form.forms.reset_db_row_id()) => 讓新紀錄可以insertion
         '''
+        global patient_now_data
         try:
             SDES_form.forms.data_clear()
-            SDES_form.forms.reset_db_row_id()
+            patient_now_data.db_row_id = {} # 讓資料可以變成insert? # FIXME
             notify("已清除所有表格內容且同一病人會創建新紀錄")
         except Exception as e:
             notify("清除表格異常", delay=1.5)
@@ -758,7 +773,7 @@ def main(page: Page):
     )
     setting_form_show()
     #################################################### Other functions
-    patient_data_from_opd(patient_hisno, patient_name, patient_hisno_manual, toggle_func=toggle_patient_data, load_func=load_db) # 這些函數會被開一個thread執行，所以不會阻塞
+    patient_data_from_opd(patient_hisno, patient_name, patient_hisno_manual, toggle_func=toggle_patient_data, load_func=load_db, dlg_overwrite=dlg_overwrite) # 這些函數會被開一個thread執行，所以不會阻塞
 
 
 def close_db():

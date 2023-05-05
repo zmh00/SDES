@@ -21,7 +21,7 @@ DBNAME = 'vgh_oph_2'
 USER = 'postgres'
 PASSWORD ='qazxcdews'
 FONT_SIZE_FACTOR = 0.6
-INTERVAL_FOR_NEW_DB_ROW = datetime.timedelta(hours=4) # 距離目前6小時前就算新紀錄
+INTERVAL_FOR_NEW_DB_ROW = datetime.timedelta(hours=5) # 距離上筆記錄的創造時間大於5小時前就算新紀錄 
 # DOCTOR_ID
 
 # COLUMN NAMES
@@ -46,6 +46,8 @@ class PatientData():
         self.name = name
         self.birthday = birthday
         self.age = age
+        self.db_row_id = {} # key: form_name; value: db_row_id
+        self.db_loaded_dict = {}
     
     def __eq__(self, __value: object) -> bool: # 定義比較相等的方法
         if not isinstance(__value, PatientData):
@@ -127,10 +129,16 @@ def format_merge(format_list: list, **kwargs):
 #     return format_text
 
 def format_no_output(measurement):
+    '''
+    No format output
+    '''
     return ''
 
 
 def format_text_tradition(measurement):
+    '''
+    Ex: Cornea:clear OD, clear OS, ...
+    '''
     format_text = ''
     other_format_text = ''
     for item_name in measurement.body:
@@ -147,6 +155,9 @@ def format_text_tradition(measurement):
 
 
 def format_text_2score(measurement):
+    '''
+    Ex: TBUT: 5/5
+    '''
     format_text = ''
     for item_name in measurement.body:
         if measurement.body[item_name].value.strip() == '':
@@ -159,6 +170,9 @@ def format_text_2score(measurement):
 
 
 def format_text_parentheses(measurement):
+    '''
+    Ex: K(OD):(H).../(V)...
+    '''
     format_text_list = []
     for item_name in measurement.item_list:
         t = measurement.body[item_name].value.strip()
@@ -170,16 +184,39 @@ def format_text_parentheses(measurement):
 
 
 def format_checkbox(measurement):
+    '''
+    Ex: IRF:OD,OS
+    '''
     format_text = ''
     for item_name in measurement.body:
-        if measurement.body[item_name].value != False:
+        if measurement.body[item_name].value == True:
             format_text = format_text + f"{item_name},"
 
     format_text = f"{measurement.label}:" + format_text.rstrip(',')
     return format_text
 
 
+def format_checkbox_tristate(measurement):
+    '''
+    Ex: History:DM(+),CHF(-)
+    '''
+    format_text = ''
+    for item_name in measurement.body:
+        if measurement.body[item_name].value == True:
+            format_text = format_text + f"{item_name}(+),"
+        elif measurement.body[item_name].value == None:
+            format_text = format_text + f"{item_name}(-),"
+        else:
+            pass
+
+    format_text = f"{measurement.label}:" + format_text.rstrip(',')
+    return format_text
+
+
 def format_shirmer1(measurement):
+    '''
+    Ex: Shirmer 1:5/5mm
+    '''
     format_text = ''
     for item_name in measurement.body:
         if measurement.body[item_name].value.strip() == '':
@@ -192,6 +229,9 @@ def format_shirmer1(measurement):
 
 
 def format_iop(measurement):
+    '''
+    Ex: IOP:(Pneumo)10/10mmHg
+    '''
     format_text = ''
     iop_od = measurement.body['OD'].value.strip()
     iop_od = iop_od if iop_od != '' else 'x'
@@ -209,6 +249,9 @@ def format_iop(measurement):
 
 
 def format_exo(measurement):
+    '''
+    Ex: EXO:12>--65--<12
+    '''
     exo_od=''
     exo_os=''
     exo_pd=''
@@ -464,7 +507,7 @@ class Measurement_Text(Measurement):
     
          
 class Measurement_Check(Measurement):
-    def __init__(self, label: str, item_list: list, width_list: Union[List[int], int] = None, format_region = 'o', format_func = format_checkbox, default: dict = None, compact = False, tristate = True):
+    def __init__(self, label: str, item_list: list, width_list: Union[List[int], int] = None, format_region = 'o', format_func = format_checkbox_tristate, default: dict = None, compact = False, tristate = True):
         if type(item_list) != list:
             raise Exception("Wrong input in Measurement_Check item_list")
         super().__init__(label, ft.Checkbox, item_list, format_region=format_region, format_func=format_func, default=default)
@@ -542,7 +585,6 @@ class Form(ft.Tab): #目的是擴增Tab的功能
                 )
             ]
         )
-        self.db_row_id = None # 此參數表示目前連結資料庫的row_id，目的是可以持續update row用途
         
 
     def set_display(self, text=None):
@@ -559,10 +601,6 @@ class Form(ft.Tab): #目的是擴增Tab的功能
 
     def set_doctor_id(self, doctor_id):
         self.doctor_id = doctor_id
-
-    
-    def reset_db_row_id(self):
-        self.db_row_id = None
 
 
     # def measurements(self, item_name: str): # 沒用
@@ -647,7 +685,7 @@ class Form(ft.Tab): #目的是擴增Tab的功能
 
     def db_values_exist(self, values_dict): 
         '''
-        判斷是不是全空值，insertion時用(self.db_row_id==None)
+        判斷是不是全空值
         當成空值條件:
         - textfield: ''是空值
         - checkbox: 轉換後的None是空值(True、False會被留下)
@@ -760,7 +798,7 @@ class Form(ft.Tab): #目的是擴增Tab的功能
     def db_save(self, patient_data:PatientData):
         values_dict = self.db_values_dict()
 
-        if (self.db_row_id == None) and (self.db_values_exist(values_dict) == False): 
+        if (patient_data.db_row_id.get(self.label, None) == None) and (self.db_values_exist(values_dict) == False): 
         # 如果沒有資料輸入(空白text or unchecked checkbox or 需要被ignore的欄位)就不送資料庫
         # 前提是insertion，如果是需要update，要考慮空值洗掉資料的需求
             return None
@@ -779,18 +817,18 @@ class Form(ft.Tab): #目的是擴增Tab的功能
         # psycopg parameterized SQL 因為防範SQL injection不支持欄位名稱有'%','(',')' => 改用自製query
         
         # 自製query
-        if self.db_row_id == None:
+        if patient_data.db_row_id.get(self.label, None) == None:
             fields = ""
             values = ""
             for column in values_dict:
-                if (values_dict[column] != None) and (values_dict[column] != ''): ### values_dict在db_values_exist應該檢查過是否有值，未來可移除None
-                    fields = fields + f'"{column}", '
-                    if type(values_dict[column]) == str:
-                        values = values + f"'{values_dict[column]}', "
-                    elif values_dict[column] == None:
-                        values = values + f"NULL, "
-                    else:
-                        values = values + f"{values_dict[column]}, "
+                # if (values_dict[column] != None) and (values_dict[column] != ''): ### values_dict在db_values_exist應該檢查過是否有值，未來可移除None
+                fields = fields + f'"{column}", '
+                if type(values_dict[column]) == str:
+                    values = values + f"'{values_dict[column]}', "
+                elif values_dict[column] == None:
+                    values = values + f"NULL, "
+                else:
+                    values = values + f"{values_dict[column]}, "
             query = f'''INSERT INTO "{self.label}" ({fields.rstrip(', ')}) VALUES ({values.rstrip(', ')}) RETURNING {COLUMN_ID};'''
         else:
             query_parameters = ''
@@ -803,15 +841,15 @@ class Form(ft.Tab): #目的是擴增Tab的功能
                     query_parameters = query_parameters + f'''"{column}"={values_dict[column]}, '''
             
             query_parameters = query_parameters + f'''"{COLUMN_TIME_UPDATED}"=NOW() '''
-            query = f'''UPDATE "{self.label}" SET {query_parameters} WHERE "{COLUMN_ID}"={self.db_row_id};'''
+            query = f'''UPDATE "{self.label}" SET {query_parameters} WHERE "{COLUMN_ID}"={patient_data.db_row_id.get(self.label, None)};'''
 
         try:
             # cursor.execute(query, values_dict) #因為前面定義過有標籤的placeholder，可以傳入dictionary => 不能使用因為自製query
-            if self.db_row_id == None:
+            if patient_data.db_row_id.get(self.label, None) == None:
                 t1 = time.perf_counter()
                 cursor.execute(query)
                 res = cursor.fetchone()
-                self.db_row_id = res[COLUMN_ID] # 存入後取得該row_id可以繼續update
+                patient_data.db_row_id[self.label] = res[COLUMN_ID] # 存入後取得該row_id可以繼續update
                 db_conn.commit()
                 t2 = time.perf_counter()
                 logger.debug(f'{inspect.stack()[0][3]}||Form[{self.label}]||Patient[{patient_data.hisno}]||Finish INSERT in {(t2-t1)*1000}ms')
@@ -848,11 +886,17 @@ class Form(ft.Tab): #目的是擴增Tab的功能
             if row is None: # 沒有資料就回傳None
                 self.set_display(text="無資料可擷取")
                 return None
-            self.data_load_db(dict(row)) # 設定measurement資料
+            row = dict(row)
+            self.data_load_db(row) # 設定measurement資料
             self.set_display(text=f"已擷取資料日期:{row[COLUMN_TIME_UPDATED].strftime('%Y-%m-%d %H:%M')}") # 顯示display:資料擷取日期
             
             if row[COLUMN_TIME_CREATED] >= (datetime.datetime.today() - INTERVAL_FOR_NEW_DB_ROW).astimezone(tz=None): # 在指定時效內此row可以作為update用途
-                self.db_row_id = row[COLUMN_ID] # 存下 row_id in order to update that row
+                patient_data.db_row_id[self.label] = row[COLUMN_ID] # 存下 row_id in order to update that row
+
+            # 只留下目前表單會有的欄位
+            db_columns = self.db_column_names()
+            tmp_dict = {key: row[key] for key in db_columns}
+            patient_data.db_loaded_dict[self.label] = tmp_dict # 將資料庫讀取出來的資料去掉和使用者輸入無關資料，方便後續做比較
 
             return True
         except Exception as e:
@@ -882,15 +926,23 @@ class Forms(): #集合Form(Tab)，包裝存、取、清除功能
     #     pass
 
 
+    def db_values_dict(self, tab_index = None):
+        '''
+        取得目前各表單的資料dict，可幫助比較是否有資料異動
+        '''
+        return_dict = {}
+        if tab_index == None: # 判斷全部forms
+            for form in self.form_list_selected:
+                return_dict[form.label] = form.db_values_dict()
+        else:
+            return_dict[self.form_list_selected[tab_index].label] = self.form_list_selected[tab_index].db_values_dict()
+        return return_dict
+
+
     def set_doctor_id(self, doctor_id):
         self.doctor_id = doctor_id
         for form in self.form_list_selected:
             form.set_doctor_id(doctor_id=doctor_id)
-
-
-    def reset_db_row_id(self):
-        for form in self.form_list_selected:
-            form.reset_db_row_id()
 
 
     def data_opdformat_one(self): # 單一form格式化輸出
@@ -1143,16 +1195,23 @@ form_ivi = Form(
     label="IVI",
     measurement_list=[
         Measurement_Text('VA'),
+        Measurement_Text('REF'),
+        Measurement_Text('K', ['H','V'], format_func=format_text_parentheses),
         iop,
         Measurement_Text('Lens'),
         Measurement_Text('CMT'),
+        Measurement_Text('Fundus+OCT',[''], multiline=True),
         Measurement_Check('IRF', ['OD','OS'], compact=True),
         Measurement_Check('SRF', ['OD','OS'], compact=True),
         Measurement_Check('SHRM', ['OD','OS'], compact=True),
         Measurement_Check('Atrophy', ['OD','OS'], compact=True),
         Measurement_Check('Gliosis', ['OD','OS'], compact=True),
+        Measurement_Check('Schsis', ['OD','OS'], compact=True),
         Measurement_Check('New hemorrhage', ['OD','OS'], compact=True),
-        Measurement_Text('Fundus', multiline=True),
+        Measurement_Text('OCT findings', multiline=True),
+        Measurement_Check('Impression', ['AMD','PCV', 'RAP', 'mCNV', 'CRVO', 'BRVO', 'DME', 'VH', 'CME', 'PDR', 'NVG', 'IGS', 'CSCR'], compact=True),
+        Measurement_Text('Other Impression', multiline=True),
+        Measurement_Check('Treatment', ['Eyelea','Lucentis', 'Avastin', 'Ozurdex', 'Beovu', 'Faricimab'], compact=True),
     ]
 )
 
