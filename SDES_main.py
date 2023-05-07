@@ -61,8 +61,7 @@ def patient_data_from_opd(patient_hisno: ft.TextButton, patient_name: ft.Text, p
                             patient_hisno.update()
                             patient_name.update()
 
-                        # FIXME 確認目前沒有需要寫入資訊才load?
-                        if dlg_overwrite.open == False:
+                        if dlg_overwrite.open == False: # 若目前有未存警告就暫停load新資料 # FIXME
                             # 讀取資料新病人資料 => 若有未儲存資料跳警告處理
                             load_func()  # 讀取此病人單一或全部表單
                             

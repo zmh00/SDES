@@ -305,19 +305,63 @@ class Measurement(ft.UserControl):
         None: False,
     }
 
+    def text_on_click(self, e=None):
+        if self.control_type == ft.TextField: # 先選擇直接忽略textfield型態 => 未來可以細緻化
+            return
+        for item in self.item_list:
+            if type(self.body[item]) == ft.Checkbox: # 要是checkbox才能調整值 # TODO 未來可以改成textfield點擊會恢復預設值
+                if self.head_click_state == False:
+                    self.body[item].value = True
+                else:
+                    self.body[item].value = False
+        self.head_click_state = not self.head_click_state
+        self.row.update()
+    
+
+    def text_on_enter(self, e=None):
+        e.control.style.color = ft.colors.BLUE
+        e.control.update()
+
+    def text_on_exit(self, e=None):
+        e.control.style.color = None
+        e.control.update()
+
     def __init__(self, label: str, control_type: ft.Control, item_list: List[str], format_func, format_region, default): # 接受參數用
         super().__init__()
         self.label = label # 辨識必須: 後續加入form內的measurement都需要label
         self.control_type = control_type # 未使用考慮可以移除
+        
+        # 新版self.head => 加上全有全無按鈕
+        self.head_click_state = False # 標註全有全無的點擊狀態
         self.head = ft.Text(
-            self.label, 
-            text_align='center', 
-            # style=ft.TextThemeStyle.TITLE_MEDIUM,
-            size=25 * FONT_SIZE_FACTOR, 
-            weight=ft.FontWeight.W_600, 
-            color=ft.colors.BLACK
-        ) 
-        self.body = {} # 不同型態measurement客製化
+            text_align='center',
+            spans=[
+                ft.TextSpan(
+                    self.label, # 替換成label
+                    style=ft.TextStyle(
+                        size=25 * FONT_SIZE_FACTOR, 
+                        weight=ft.FontWeight.W_600, 
+                        color=ft.colors.BLACK,
+                    ),
+                    on_enter=self.text_on_enter,
+                    on_exit=self.text_on_exit,
+                    on_click=self.text_on_click,
+                )
+            ],
+            tooltip="全選/全取消"
+        )
+
+        ## 舊版self.head
+        # self.head = ft.Text(
+        #     self.label, 
+        #     text_align='center', 
+        #     # style=ft.TextThemeStyle.TITLE_MEDIUM,
+        #     size=25 * FONT_SIZE_FACTOR, 
+        #     weight=ft.FontWeight.W_600, 
+        #     color=ft.colors.BLACK,
+        # ) 
+        
+        self.body = {} # 一個measurement下各個item欄位control會被放入body(dict)內部，最後build時會被逐一加入self.row內輸出
         if type(item_list) is not list: # 輸入一個item轉換成list型態
             self.item_list = [str(item_list)]
         else:
@@ -328,6 +372,16 @@ class Measurement(ft.UserControl):
         self.format_func = format_func
         self.format_region = format_region
         self.default = default # {item_keys: default_value}
+
+
+    def head_on_click(self):
+        pass
+
+    def head_on_enter(self):
+        pass
+
+    def head_on_exit(self):
+        pass
 
 
     def __repr__(self) -> str:
