@@ -13,6 +13,7 @@
 - [ ]  增加form內部的divider?
 - [ ]  目前migrate功能不會偵測型態變更
 - [ ]  欄位編輯 ⇒ 手動新增欄位
+- [ ]  支援local端儲存(sqlite)
 ---
 - Prerequisite python package: 
   ```sh
