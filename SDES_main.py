@@ -787,6 +787,6 @@ atexit.register(close_db)
 
 # 確認是否為最新的版本
 updater.ALERT_TITLE = ALERT_TITLE
-is_latest = updater.updater_github(OWNER, REPO, TARGET_FILE, VERSION_TAG, mode='browser')
+is_latest = updater.updater_github(OWNER, REPO, TARGET_FILE, VERSION_TAG, mode='direct')
 if is_latest==True:
     ft.app(target=main)
