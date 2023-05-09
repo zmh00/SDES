@@ -19,7 +19,7 @@ PROCESS_NAME = 'vghtpe.dcr.win.exe'
 # Settings of updater
 OWNER = 'zmh00'
 REPO = 'SDES'
-VERSION_TAG = 'v1.4.5'
+VERSION_TAG = 'v1.5.5'
 TARGET_FILE = 'SDES'
 ALERT_TITLE = 'SDES Updater'
 
@@ -152,6 +152,10 @@ def main(page: Page):
         else:
             notify("資料庫連線成功")
 
+    def on_resize_window(e=None):
+        tabs.height = page.height - 265
+        tabs.update()
+
     def setWindowLeftMiddle():
         import ctypes
         user32 = ctypes.windll.user32
@@ -161,7 +165,15 @@ def main(page: Page):
         page.window_left = 0
         page.update()
 
-    def setWindowRightMiddle():
+    def toggleWindowMaximized(e=None):
+        if page.window_maximized == False: # maximize the window
+            page.window_maximized = True
+            page.update()
+        else:
+            page.window_maximized = False
+            setWindowRightMiddle()
+
+    def setWindowRightMiddle(e=None):
         import ctypes
         user32 = ctypes.windll.user32
         width, height = user32.GetSystemMetrics(0), user32.GetSystemMetrics(1)
@@ -507,6 +519,7 @@ def main(page: Page):
         leading_width=10,
         title=ft.Row([
                 ft.WindowDragArea(ft.Container(custom_title, alignment=ft.alignment.center_left, padding=ft.padding.only(bottom=3)), expand=True),
+                ft.IconButton(ft.icons.EXPAND, on_click= toggleWindowMaximized, icon_size = 20, tooltip = 'Expand'),
                 ft.IconButton(ft.icons.TEXT_SNIPPET_OUTLINED, on_click= setting_form_show, icon_size = 20, tooltip = 'Forms'),
                 ft.IconButton(ft.icons.SETTINGS, on_click= setting_connection_show, icon_size = 20, tooltip = 'Connection'),
                 ft.IconButton(ft.icons.CLOSE, on_click=lambda _: page.window_close(), icon_size = 20, tooltip = 'Close')
@@ -521,7 +534,7 @@ def main(page: Page):
         content=ft.Text("系統通知"),
     )
     setWindowRightMiddle()
-
+    page.on_resize = on_resize_window
     # page.on_route_change = route_change
     page.on_view_pop = view_pop # 點擊改變view後自動產生的回上一頁按鈕
     # page.go(page.route)
