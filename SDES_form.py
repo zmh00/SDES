@@ -179,7 +179,7 @@ def format_text_tradition(measurement):
     return format_text
 
 
-def format_text_2score(measurement):
+def format_text_slash(measurement):
     '''
     Ex: TBUT: 5/5
     '''
@@ -191,6 +191,36 @@ def format_text_2score(measurement):
             format_text = format_text + f"{measurement.body[item_name].value.strip()}/"
     
     format_text = f"{measurement.label}:" + format_text.rstrip('/')
+    return format_text
+
+
+def format_text_slash_mm(measurement):
+    '''
+    Ex: Shirmer 1:5/5mm
+    '''
+    format_text = ''
+    for item_name in measurement.body:
+        if measurement.body[item_name].value.strip() == '':
+            format_text = format_text + f"?/"
+        else:
+            format_text = format_text + f"{measurement.body[item_name].value.strip()}/"
+    
+    format_text = f"{measurement.label}:" + format_text.rstrip('/') + 'mm'
+    return format_text
+
+
+def format_text_slash_um(measurement):
+    '''
+    Ex: CCT: 5/5um
+    '''
+    format_text = ''
+    for item_name in measurement.body:
+        if measurement.body[item_name].value.strip() == '':
+            format_text = format_text + f"?/"
+        else:
+            format_text = format_text + f"{measurement.body[item_name].value.strip()}/"
+    
+    format_text = f"{measurement.label}:" + format_text.rstrip('/') + 'um'
     return format_text
 
 
@@ -238,21 +268,7 @@ def format_checkbox_tristate(measurement):
     return format_text
 
 
-def format_shirmer1(measurement):
-    '''
-    Ex: Shirmer 1:5/5mm
-    '''
-    format_text = ''
-    for item_name in measurement.body:
-        if measurement.body[item_name].value.strip() == '':
-            format_text = format_text + f"?/"
-        else:
-            format_text = format_text + f"{measurement.body[item_name].value.strip()}/"
-    
-    format_text = f"{measurement.label}:" + format_text.rstrip('/') + 'mm'
-    return format_text
-
-
+## 以下為客製欄位
 def format_iop(measurement):
     '''
     Ex: IOP:(Pneumo)10/10mmHg
@@ -289,6 +305,26 @@ def format_exo(measurement):
     else:
         format_text = f"{measurement.label}:{exo_od}>--{exo_pd}--<{exo_os}"
         return format_text
+    
+def format_goct(measurement):
+    '''
+    Ex: GOCT:RNFL:80/80um, GCIPL:65/65um
+    '''
+    rnfl_od='err'
+    rnfl_os='err'
+    gcipl_od='err'
+    gcipl_os='err'
+    if measurement.body['RNFL_OD'].value.strip() != '':
+        rnfl_od = measurement.body['OD'].value.strip()
+    if measurement.body['RNFL_OS'].value.strip() != '':
+        rnfl_os = measurement.body['OS'].value.strip()
+    if measurement.body['GCIPL_OD'].value.strip() != '':
+        gcipl_od = measurement.body['OD'].value.strip()
+    if measurement.body['GCIPL_OS'].value.strip() != '':
+        gcipl_os = measurement.body['OS'].value.strip()  
+    
+    format_text = f"{measurement.label}:RNFL:{rnfl_od}/{rnfl_os}um, GCIPL:{gcipl_od}/{gcipl_os}um"
+    return format_text
 #### FORMAT REGION ####
 
 
@@ -1167,12 +1203,17 @@ form_basic = Form(
         Measurement_Text('REF'),
         Measurement_Text('K(OD)', ['H','V'], format_func=format_text_parentheses),
         Measurement_Text('K(OS)', ['H','V'], format_func=format_text_parentheses),
+        Measurement_Text('CCT', format_func=format_text_slash_um),
         iop,
         Measurement_Text('Cornea', multiline=True),
         Measurement_Text('AC'),
         Measurement_Text('Lens'),
         Measurement_Text('Fundus', multiline=True),
         Measurement_Text('CDR'),
+        Measurement_Text('M_OCT'),
+        Measurement_Text('G_OCT', ['RNFL_OD','RNFL_OS','GCIPL_OD', 'GCIPL_OS'], format_func=format_goct),
+        Measurement_Text('others', multiline=True),
+        Measurement_Text('Impression', format_region='p', multiline=True)  
     ]
 )
 
@@ -1206,16 +1247,16 @@ form_dryeye = Form(
         Measurement_Text('SPEED', ''),
         Measurement_Text('OSDI', ''),
         Measurement_Text('History', '', format_region='s', multiline=True),
-        Measurement_Check('PHx', ['DM', 'Hyperlipidemia', 'Sjogren','GVHD', 'AlloPBSCT', 'Seborrheic','Smoking', 'CATA', 'Refractive', 'IPL'], compact=True, format_region='s'),
-        Measurement_Text('Schirmer 1', format_func=format_shirmer1),
-        Measurement_Text('TBUT', format_func=format_text_2score),
+        Measurement_Check('PHx', ['DM', 'Hyperlipidemia', 'Sjogren','GVHD', 'AlloPBSCT', 'Seborrheic','Smoking', 'CATA', 'Refractive', 'IPL', 'Cosmetics'], compact=True, format_region='s'),
+        Measurement_Text('Schirmer 1', format_func=format_text_slash_mm),
+        Measurement_Text('TBUT', format_func=format_text_slash),
         Measurement_Text('NEI'),
         Measurement_Check('MCJ_displacement', ['OD','OS'], compact=True),
         Measurement_Text('Telangiectasia'),
         Measurement_Check('MG plugging', ['OD','OS'], compact=True),
         Measurement_Text('Meibum', multiline=True),
         Measurement_Text('Mei_EXP'),
-        Measurement_Text('LLT', format_func=format_text_2score),
+        Measurement_Text('LLT', format_func=format_text_slash),
         Measurement_Text('Blinking'),
         Measurement_Text('MG atrophy(OD)',['upper','lower'], format_func=format_text_parentheses),
         Measurement_Text('MG atrophy(OS)',['upper','lower'], format_func=format_text_parentheses),
@@ -1238,8 +1279,8 @@ form_ipl = Form(
         Measurement_Check('Improved QoL', ['driving', 'reading', 'work', 'outdoor', 'depressed']),
         Measurement_Text('SPEED', ''),
         Measurement_Text('OSDI', ''),
-        Measurement_Text('Schirmer 1', format_func=format_shirmer1),
-        Measurement_Text('TBUT', format_func=format_text_2score),
+        Measurement_Text('Schirmer 1', format_func=format_text_slash_mm),
+        Measurement_Text('TBUT', format_func=format_text_slash),
         Measurement_Text('NEI'),
         Measurement_Check('MCJ_displacement', ['OD','OS'], compact=True),
         Measurement_Text('Telangiectasia'),
@@ -1287,9 +1328,11 @@ form_ivi = Form(
         Measurement_Check('Gliosis', ['OD','OS'], compact=True),
         Measurement_Check('Schisis', ['OD','OS'], compact=True),
         Measurement_Check('New hemorrhage', ['OD','OS'], compact=True),
-        Measurement_Check('Impression', ['AMD','PCV', 'RAP', 'mCNV', 'CRVO', 'BRVO', 'DME', 'VH', 'CME', 'PDR', 'NVG', 'IGS', 'CSCR'], compact=True),
+        Measurement_Check('Impression_OD', ['AMD','PCV', 'RAP', 'mCNV', 'CRVO', 'BRVO', 'DME', 'VH', 'CME', 'PDR', 'NVG', 'IGS', 'CSCR'], compact=True),
+        Measurement_Check('Treatment_OD', ['Eylea','Lucentis', 'Avastin', 'Ozurdex', 'Beovu', 'Faricimab', 'Gas'], compact=True),
         Measurement_Text('Other Impression', multiline=True),
-        Measurement_Check('Treatment', ['Eylea','Lucentis', 'Avastin', 'Ozurdex', 'Beovu', 'Faricimab'], compact=True),
+        Measurement_Check('Impression_OS', ['AMD','PCV', 'RAP', 'mCNV', 'CRVO', 'BRVO', 'DME', 'VH', 'CME', 'PDR', 'NVG', 'IGS', 'CSCR'], compact=True),
+        Measurement_Check('Treatment_OS', ['Eylea','Lucentis', 'Avastin', 'Ozurdex', 'Beovu', 'Faricimab', 'Gas'], compact=True),
     ]
 )
 
