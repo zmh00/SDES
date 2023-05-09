@@ -19,7 +19,7 @@ PROCESS_NAME = 'vghtpe.dcr.win.exe'
 # Settings of updater
 OWNER = 'zmh00'
 REPO = 'SDES'
-VERSION_TAG = 'v1.4.4'
+VERSION_TAG = 'v1.4.5'
 TARGET_FILE = 'SDES'
 ALERT_TITLE = 'SDES Updater'
 
