@@ -7,7 +7,7 @@ import time
 import uiautomation as auto
 # forms listed in SDES_form
 import SDES_form
-import updater
+import updater_flet
 import atexit
 
 # packing command
@@ -365,7 +365,7 @@ def main(page: Page):
     setting_connection_loadbutton = ft.Switch(label="Load ALL forms", value=True, expand=True)
 
     authorship = ft.Row(
-        controls = [ft.Text("ZMH © 2023", style=ft.TextThemeStyle.BODY_SMALL, weight=ft.FontWeight.BOLD)],
+        controls = [ft.Text(f"ZMH © 2023 ({VERSION_TAG})", style=ft.TextThemeStyle.BODY_SMALL, weight=ft.FontWeight.BOLD)],
         alignment=ft.MainAxisAlignment.CENTER,
     )
 
@@ -799,7 +799,6 @@ def close_db():
 atexit.register(close_db)
 
 # 確認是否為最新的版本
-updater.ALERT_TITLE = ALERT_TITLE
-is_latest = updater.updater_github(OWNER, REPO, TARGET_FILE, VERSION_TAG, mode='direct')
+is_latest = updater_flet.Updater_github(OWNER, REPO, TARGET_FILE, VERSION_TAG).start()
 if is_latest==True:
     ft.app(target=main)

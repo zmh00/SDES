@@ -1,6 +1,6 @@
 import flet as ft
 import datetime
-from typing import Union, List, Tuple
+from typing import Any, Union, List, Tuple
 import psycopg2
 from psycopg2.sql import SQL, Identifier, Placeholder, Literal
 from psycopg2.extras import RealDictCursor
@@ -8,6 +8,8 @@ import logging
 import inspect
 import os
 import time
+
+import plotly.express as px
 
 # CONST and ATTRIBUTES
 TEST_MODE = bool(os.getenv('SDES_TEST', False))
@@ -166,7 +168,7 @@ def format_text_tradition(measurement):
     '''
     format_text = ''
     other_format_text = ''
-    for item_name in measurement.body:
+    for item_name in measurement.item_list:
         if item_name == 'OD' or item_name == 'OS':
             if measurement.body[item_name].value.strip() != '':
                 format_text = format_text + f"{measurement.body[item_name].value} {item_name}, "
@@ -184,7 +186,7 @@ def format_text_slash(measurement):
     Ex: TBUT: 5/5
     '''
     format_text = ''
-    for item_name in measurement.body:
+    for item_name in measurement.item_list:
         if measurement.body[item_name].value.strip() == '':
             format_text = format_text + f"?/"
         else:
@@ -196,10 +198,10 @@ def format_text_slash(measurement):
 
 def format_text_slash_mm(measurement):
     '''
-    Ex: Shirmer 1:5/5mm
+    Ex: Schirmer 1:5/5mm
     '''
     format_text = ''
-    for item_name in measurement.body:
+    for item_name in measurement.item_list:
         if measurement.body[item_name].value.strip() == '':
             format_text = format_text + f"?/"
         else:
@@ -214,7 +216,7 @@ def format_text_slash_um(measurement):
     Ex: CCT: 5/5um
     '''
     format_text = ''
-    for item_name in measurement.body:
+    for item_name in measurement.item_list:
         if measurement.body[item_name].value.strip() == '':
             format_text = format_text + f"?/"
         else:
@@ -238,17 +240,17 @@ def format_text_parentheses(measurement):
     return format_text
 
 
-def format_checkbox(measurement):
-    '''
-    Ex: IRF:OD,OS
-    '''
-    format_text = ''
-    for item_name in measurement.body:
-        if measurement.body[item_name].value == True:
-            format_text = format_text + f"{item_name},"
+# def format_checkbox(measurement): # 先暫時不使用
+#     '''
+#     Ex: IRF:OD,OS
+#     '''
+#     format_text = ''
+#     for item_name in measurement.body:
+#         if measurement.body[item_name].value == True:
+#             format_text = format_text + f"{item_name},"
 
-    format_text = f"{measurement.label}:" + format_text.rstrip(',')
-    return format_text
+#     format_text = f"{measurement.label}:" + format_text.rstrip(',')
+#     return format_text
 
 
 def format_checkbox_tristate(measurement):
@@ -256,13 +258,20 @@ def format_checkbox_tristate(measurement):
     Ex: History:DM(+),CHF(-)
     '''
     format_text = ''
-    for item_name in measurement.body:
-        if measurement.body[item_name].value == True:
-            format_text = format_text + f"{item_name}(+),"
-        elif measurement.body[item_name].value == None:
-            format_text = format_text + f"{item_name}(-),"
-        else:
-            pass
+    if measurement.tristate == True: # 三種狀態
+        for item_name in measurement.item_list:
+            if measurement.body[item_name].value == True:
+                format_text = format_text + f"{item_name}(+),"
+            elif measurement.body[item_name].value == None:
+                format_text = format_text + f"{item_name}(-),"
+            else: # tristate下沒勾選的會跳過
+                pass 
+    else: # 二種狀態
+        for item_name in measurement.item_list:
+            if measurement.body[item_name].value == True:
+                format_text = format_text + f"{item_name}(+),"
+            else:
+                format_text = format_text + f"{item_name}(-),"
 
     format_text = f"{measurement.label}:" + format_text.rstrip(',')
     return format_text
@@ -329,36 +338,42 @@ def format_goct(measurement):
 
 
 class Measurement(ft.UserControl):
-    tristate_data_to_db ={
-        True: True,
-        None: False,
-        False: None,
-    }
-    
-    tristate_db_to_data ={
-        True: True,
-        False: None,
-        None: False,
-    }
+    def head_on_click(self, e=None):
+        '''
+        head元件點擊後觸發:全有全無快捷
+        '''
+        if self.control_type == ft.TextField: # textfield型態 => return to defaulr
+            self.data_return_default()
+        elif self.control_type == ft.Checkbox:
+            if self.tristate == True:
+                head_click_state = [False, True, None]
+            else:
+                head_click_state = [False, True]
+            index = self.head_click_state_index + 1
+            if index >= len(head_click_state):
+                index = 0
+            self.head_click_state_index = index
+            for item in self.item_list:
+                if type(self.body[item]) == ft.Checkbox: # 要是checkbox才調整值
+                    self.body[item].value = head_click_state[index]
 
-    def text_on_click(self, e=None):
-        if self.control_type == ft.TextField: # 先選擇直接忽略textfield型態 => 未來可以細緻化
-            return
-        for item in self.item_list:
-            if type(self.body[item]) == ft.Checkbox: # 要是checkbox才能調整值 # TODO 未來可以改成textfield點擊會恢復預設值
-                if self.head_click_state == False:
-                    self.body[item].value = True
-                else:
-                    self.body[item].value = False
-        self.head_click_state = not self.head_click_state
+        elif self.control_type == ft.Dropdown:
+            pass
+
         self.row.update()
     
 
-    def text_on_enter(self, e=None):
+    def head_on_enter(self, e=None):
+        '''
+        head元件進入後觸發:顏色變藍
+        '''
         e.control.style.color = ft.colors.BLUE
         e.control.update()
 
-    def text_on_exit(self, e=None):
+    def head_on_exit(self, e=None):
+        '''
+        head元件離開後觸發:顏色還原
+        '''
         e.control.style.color = None
         e.control.update()
 
@@ -367,8 +382,8 @@ class Measurement(ft.UserControl):
         self.label = label # 辨識必須: 後續加入form內的measurement都需要label
         self.control_type = control_type # 未使用考慮可以移除
         
-        # 新版self.head => 加上全有全無按鈕
-        self.head_click_state = False # 標註全有全無的點擊狀態
+        # 新版self.head => 加上點擊快捷效果
+        self.head_click_state_index = 0 # 標註head的點擊狀態:起始是False(checkbox為空)
         self.head = ft.Text(
             text_align='center',
             spans=[
@@ -379,13 +394,14 @@ class Measurement(ft.UserControl):
                         weight=ft.FontWeight.W_600, 
                         color=ft.colors.BLACK,
                     ),
-                    on_enter=self.text_on_enter,
-                    on_exit=self.text_on_exit,
-                    on_click=self.text_on_click,
+                    on_enter=self.head_on_enter,
+                    on_exit=self.head_on_exit,
+                    on_click=self.head_on_click,
                 )
             ],
-            tooltip="全選/全取消"
+            tooltip=""
         )
+
 
         ## 舊版self.head
         # self.head = ft.Text(
@@ -408,16 +424,6 @@ class Measurement(ft.UserControl):
         self.format_func = format_func
         self.format_region = format_region
         self.default = default # {item_keys: default_value}
-
-
-    def head_on_click(self):
-        pass
-
-    def head_on_enter(self):
-        pass
-
-    def head_on_exit(self):
-        pass
 
 
     def __repr__(self) -> str:
@@ -444,15 +450,16 @@ class Measurement(ft.UserControl):
         '''
         顯示欄位清除
         '''
-        if self.control_type == ft.Checkbox: # checkbox data_clear
-            for item_name in self.body:
+        for item_name in self.body:
+            if type(self.body[item_name]) == ft.Checkbox:
                 self.body[item_name].value = False
-            self.update()
-        elif self.control_type == ft.TextField: # textfield data_clear
-            for item_name in self.body:
+            elif type(self.body[item_name]) == ft.TextField:
                 self.body[item_name].value = ''
+            elif type(self.body[item_name]) == ft.Dropdown:
+                self.body[item_name].value = None
+            else:
+                print("1213121")
             self.update()
-        # else: #其他可能?
 
 
     def data_return_default(self):
@@ -487,7 +494,7 @@ class Measurement(ft.UserControl):
                 if (value != False): # 為了checkbox型態的tristate
                     exist = True
             elif control_type == ft.Dropdown:
-                if (value != None): # 為了checkbox型態的tristate
+                if (value != None): # FIXME 需要測試
                     exist = True
             else:
                 logger.error(f"data_exist內部遇到未定義型態||type:{type(value)}||value:{value}")
@@ -500,18 +507,26 @@ class Measurement(ft.UserControl):
         將資料庫取得的values_dict(keys為資料庫形式:db_column_names)傳入顯示欄位
         tristate checkbox會被轉譯(self.tristate_db_to_data)
         '''
+        # tristate資料需要轉化
+        tristate_db_to_data ={
+            True: True,
+            False: None,
+            None: False,
+        }
+
         # 透過self.db_column_names方便程式碼閱讀但效率變差
         column_names = self.db_column_names()
 
         for i, item in enumerate(self.item_list):
-            if type(self.body[item]) == ft.Checkbox:
-                self.body[item].value = self.tristate_db_to_data[values_dict[column_names[i]]] # 資料庫獲取資料會在此轉換型態
+            control_type = type(self.body[item])
+            if control_type == ft.Checkbox and self.tristate == True: # tristate資料需要轉換
+                self.body[item].value = tristate_db_to_data[values_dict[column_names[i]]] # 資料庫獲取資料會在此轉換型態
             else:
                 self.body[item].value = values_dict[column_names[i]]
         self.update()
     
 
-    def db_column_names(self):
+    def db_column_names(self) -> list:
         '''
         將label+item名稱轉成資料庫column_names
         '''
@@ -530,6 +545,12 @@ class Measurement(ft.UserControl):
         將measurement內部值搭配column_names形成values_dict
         過程不會捨棄空值 => 統一到Form處理
         '''
+        tristate_data_to_db ={
+            True: True,
+            None: False,
+            False: None,
+        }
+
         column_names = self.db_column_names()
         values = {}
         for i, item in enumerate(self.item_list):
@@ -539,7 +560,7 @@ class Measurement(ft.UserControl):
             if type(value) == str: # 為何不用self.control_type 是因為control如果有新增其他type control會有問題 要用更細的type(self.body[item])判斷
                 value = value.strip() # 字串類型前後空格去除
             elif control_type == ft.Checkbox and self.tristate == True: # 處理tristate
-                value = self.tristate_data_to_db[value] # 資料轉換
+                value = tristate_data_to_db[value] # 資料轉換
             elif control_type == ft.Checkbox and self.tristate == False: # 處理普通checkbox
                 pass
             elif type(value) == None: # dropbox預設可能會是None
@@ -577,27 +598,10 @@ class Measurement_Text(Measurement):
         # self.row.update() # 建立時就指定應該不用update
 
 
-    def build(self):
-        # self.head = ft.Text(self.label, text_align='center', style=ft.TextThemeStyle.TITLE_LARGE, weight=ft.FontWeight.W_400, color=ft.colors.BLACK)
-        style_textfield = dict(
-            dense=True, 
-            height=40*FONT_SIZE_FACTOR+5, 
-            cursor_height=20*FONT_SIZE_FACTOR, 
-            content_padding = 10*FONT_SIZE_FACTOR, 
-            expand=True
-        )
-        if len(self.item_list) == 1:
-            self.body[self.item_list[0]] = ft.TextField(autofocus=True, **style_textfield)
-        else:
-            for i, item_name in enumerate(self.item_list):
-                if self.body.get(item_name, None) != None: # 表示body已有control
-                    continue
-                if i == 0:
-                    self.body[item_name] = ft.TextField(label=item_name, autofocus=True, **style_textfield)
-                else:
-                    self.body[item_name] = ft.TextField(label=item_name, **style_textfield)
+    def build(self): # flet元件要建立時會呼叫build()
+        # self.head 在Measurement中定義
         
-        # UI呈現的載體，資料操作可以針對body
+        # UI呈現載體
         self.row = ft.Row(
             # expand=True, 
             controls=[
@@ -605,9 +609,28 @@ class Measurement_Text(Measurement):
             ]
         )
 
-        # 這段能確保顯示的順序和建立時一致
-        for item_name in self.item_list:
-            self.row.controls.append(self.body[item_name])
+        # 填充body元件 + 存入self.row
+        style_textfield = dict(
+            dense=True, 
+            height=40*FONT_SIZE_FACTOR+5, 
+            cursor_height=20*FONT_SIZE_FACTOR, 
+            content_padding = 10*FONT_SIZE_FACTOR, 
+            expand=True
+        )
+
+        for i, item_name in enumerate(self.item_list):
+            if self.body.get(item_name, None) != None: # 表示body內已有此item => 例如提前置入的control(ex:iop)　或　經過第一次build後再次呼叫build時(每次元件建立時都會呼叫一次)
+                self.row.controls.append(self.body[item_name]) # 直接加入 row # TODO是不是應該row有元素就不要重置
+                continue
+            if len(self.item_list) == 1:
+                self.body[item_name] = ft.TextField(autofocus=True, **style_textfield)
+            else:
+                if i == 0:
+                    self.body[item_name] = ft.TextField(label=item_name, autofocus=True, **style_textfield)
+                else:
+                    self.body[item_name] = ft.TextField(label=item_name, **style_textfield)
+                    
+            self.row.controls.append(self.body[item_name]) # 確保顯示的順序和建立時一致
         
         # set_multiline if True
         if self.multiline == True:
@@ -617,12 +640,16 @@ class Measurement_Text(Measurement):
         if self.default != None:
             for keys in self.default:
                 self.body[keys].value = self.default[keys]    
+        
+        # 設定head tooltip
+        if self.default != None: 
+            self.head.tooltip = "填入預設值"
 
         return self.row
     
          
 class Measurement_Check(Measurement):
-    def __init__(self, label: str, item_list: list, width_list: Union[List[int], int] = None, format_region = 'o', format_func = format_checkbox_tristate, default: dict = None, compact = False, tristate = True):
+    def __init__(self, label: str, item_list: list, width_list: Union[List[int], int] = None, format_region = 'o', format_func = format_checkbox_tristate, default: dict = None, compact = False, tristate = False):
         if type(item_list) != list:
             raise Exception("Wrong input in Measurement_Check item_list")
         super().__init__(label, ft.Checkbox, item_list, format_region=format_region, format_func=format_func, default=default)
@@ -645,25 +672,41 @@ class Measurement_Check(Measurement):
         
     
     def build(self):
-        # self.head = ft.Text(self.label, text_align='center', style=ft.TextThemeStyle.TITLE_LARGE, weight=ft.FontWeight.W_400, color=ft.colors.BLACK)
-        for i, item_name in enumerate(self.item_list):
-            self.body[item_name] = ft.Checkbox(label=item_name, value=False, width=self.checkbox_width[i], height=25, tristate=self.tristate) # height = 25 讓呈現更緊
+        # self.head 在Measurement中定義
         
+        # UI呈現載體
         self.row = ft.Row(
             controls=[],
             spacing=1,
             run_spacing=1,
             wrap=True,
         )
-        
-        # 這段能確保顯示的順序和建立時一致
-        for item_name in self.item_list: 
-            self.row.controls.append(self.body[item_name])
+
+        # 填充body元件 + 存入self.row
+        for i, item_name in enumerate(self.item_list):
+            if self.body.get(item_name, None) != None: # 表示body內已有此item => 例如提前置入的control(ex:iop)　或　經過第一次build後再次呼叫build時(每次元件建立時都會呼叫一次)
+                self.row.controls.append(self.body[item_name]) # 直接加入 row
+                continue
+            self.body[item_name] = ft.Checkbox(
+                label=item_name,
+                value=False,
+                width=self.checkbox_width[i],
+                height=25, # height = 25 讓呈現更緊 
+                tristate=self.tristate
+            )
+
+            self.row.controls.append(self.body[item_name]) # 確保顯示的順序和建立時一致
 
         # 使用預設值初始化
         if self.default != None:
             for keys in self.default:
                 self.body[keys].value = self.default[keys]
+
+        # 設定head tooltip
+        if self.tristate == True:
+            self.head.tooltip = "全是/全否/全取消"
+        else:
+            self.head.tooltip = "全選/全取消"
 
         # 決定輸出緊密程度
         if self.compact:
@@ -672,11 +715,62 @@ class Measurement_Check(Measurement):
             return ft.Column(controls=[self.head, self.row]) # 讓head換行後接著checkboxes
     
 
-class Form(ft.Tab): #目的是擴增Tab的功能
-    def __init__(self, label, measurement_list: List[Measurement]):
+class Measurement_Dropdown(Measurement):
+    def __init__(self, label: str, item_dict: dict, format_func = format_text_parentheses, format_region = 'o', default = None):
+        self.item_dict = item_dict # 包含item_list和選項內容
+        item_list = list(item_dict.keys()) # 擷取其中的keys作為item list
+        super().__init__(label, ft.Dropdown, item_list, format_region=format_region, format_func=format_func, default=default)
+
+    def build(self):
+        
+        # UI呈現的載體
+        self.row = ft.Row( 
+            controls=[
+                self.head,  
+            ],
+        )
+
+        # 填充body元件 + 存入self.row
+        for item_name in self.item_list:
+            if self.body.get(item_name, None) != None: # 表示body內已有此item => 例如提前置入的control(ex:iop)　或　經過第一次build後再次呼叫build時(每次元件建立時都會呼叫一次)
+                self.row.controls.append(self.body[item_name]) # 直接加入 row
+                continue
+            
+            max_length = 0
+            option_list = []
+            for option_value in self.item_dict[item_name]:
+                option_list.append(ft.dropdown.Option(option_value))
+                max_length = max(max_length, len(option_value))
+            
+            self.body[item_name] = ft.Dropdown(
+                label=item_name,
+                options=option_list,
+                # width=max_length*8+40,
+                dense=True,
+                height=40*FONT_SIZE_FACTOR+5,
+                content_padding=6,
+                text_size=15,
+                expand=True
+            )
+
+            self.row.controls.append(self.body[item_name])
+        
+        return self.row
+        
+
+class Form(ft.Tab): 
+    '''
+    擴增Tab的功能
+    '''
+    def __init__(self, label, control_list: List[Measurement]):
+        '''
+        control_list: 表單內所有control(呈現單元+資料單元)
+        measurement_list: 表單內資料單元
+        '''
         super().__init__()
-        self.label = label # 資料儲存
-        self.measurement_list = measurement_list # 資料儲存
+        self.label = label # 資料儲存label
+        self.control_list = control_list # contorl list: 內涵單純呈現的項目+資料儲存(measurement)
+        self.measurement_list = self.set_measurement_list(control_list=control_list) # 資料儲存(measurement)欄位
         
         self.display = ft.Container(
             content= ft.Text(value='已擷取......資料', color=ft.colors.WHITE, weight=ft.FontWeight.BOLD, visible=False),
@@ -685,13 +779,15 @@ class Form(ft.Tab): #目的是擴增Tab的功能
             margin= ft.margin.only(top=5, bottom=0),
             visible= True,
         )
-        self.text = self.label # 呈現用途
-        self.content = ft.Column(
+
+        # 呈現單元: text, content為flet.Tab下固有屬性
+        self.text = self.label # tab標籤名 
+        self.content = ft.Column( # tab內容
             controls=[
                 self.display, 
                 ft.Container( # 呈現用途
                     content=ft.Column(
-                        controls=self.measurement_list,
+                        controls=self.control_list,
                         scroll="adaptive",
                     ),
                     # alignment=ft.alignment.center,
@@ -700,7 +796,19 @@ class Form(ft.Tab): #目的是擴增Tab的功能
                 )
             ]
         )
-        
+
+    def set_measurement_list(self, control_list):
+        '''
+        將control_list排除呈現單元剩下資料單元
+        '''
+        measurement_list = []
+        for control in control_list:
+            if isinstance(control, Measurement):
+                measurement_list.append(control)
+            elif isinstance(control, (ft.Row, ft.Column)): # 如果是Row或Column打包的資料項 => 要往下去找 #FIXME 目前先限制只能一層Row/Column
+                measurement_list.extend(control.controls)
+        return measurement_list        
+
 
     def set_display(self, text=None):
         '''
@@ -847,11 +955,12 @@ class Form(ft.Tab): #目的是擴增Tab的功能
             # 組合需要的欄位
             other_columns = ''
             for measurement in self.measurement_list:
-                for column_name in measurement.db_column_names():
-                    if measurement.control_type == ft.TextField: # FIXME 元件可以新增control，所以細節元件的type不一定等於measurement type
-                        other_columns = other_columns + f' "{column_name}" text,'
-                    elif measurement.control_type == ft.Checkbox:
+                for i, column_name in enumerate(measurement.db_column_names()): # 因為db_column_names()序列和item_list順序一樣 => 可以直接用index檢視
+                    print(i, column_name)
+                    if type(measurement.body[measurement.item_list[i]]) == ft.Checkbox: # 因為元件可以新增control，所以採用細節元件的type 非measurement.control_type
                         other_columns = other_columns + f' "{column_name}" boolean,'
+                    else: # measurement.control_type == ft.TextField or measurement.control_type == ft.Dropdown: 
+                        other_columns = other_columns + f' "{column_name}" text,'
             
             # 創建table
             query = f'''CREATE TABLE IF NOT EXISTS "{self.label}" (
@@ -891,12 +1000,13 @@ class Form(ft.Tab): #目的是擴增Tab的功能
                 # 將集合差值的column names搭配data type形成query => "{column_name}"使用雙引號: case-sensitive 
                 add_columns = ''
                 for measurement in self.measurement_list:
-                    for column_name in measurement.db_column_names():
+                    for i, column_name in enumerate(measurement.db_column_names()):
                         if column_name in diff:
-                            if measurement.control_type == ft.TextField:
-                                add_columns = add_columns + f' ADD COLUMN "{column_name}" text,'
-                            elif measurement.control_type == ft.Checkbox:
+                            if type(measurement.body[measurement.item_list[i]]) == ft.Checkbox:
                                 add_columns = add_columns + f' ADD COLUMN "{column_name}" boolean,'
+                            else: # measurement.control_type == ft.TextField or measurement.control_type == ft.Dropdown:
+                                add_columns = add_columns + f' ADD COLUMN "{column_name}" text,'
+                            
                 # 新增Column欄位
                 query = f''' ALTER TABLE "{self.label}" {add_columns.rstrip(',')}'''
                 try:
@@ -1181,7 +1291,7 @@ iop.add_control(
     item_name='mode',
     control=ft.Dropdown(
         width=100,
-        height=40,
+        height=29,
         content_padding = 10,
         dense=True,
         expand=True,
@@ -1198,7 +1308,7 @@ iop.add_control(
 
 form_basic = Form(
     label="Basic",
-    measurement_list=[
+    control_list=[
         Measurement_Text('VA'),
         Measurement_Text('REF'),
         Measurement_Text('K(OD)', ['H','V'], format_func=format_text_parentheses),
@@ -1213,14 +1323,14 @@ form_basic = Form(
         Measurement_Text('M_OCT'),
         Measurement_Text('G_OCT', ['RNFL_OD','RNFL_OS','GCIPL_OD', 'GCIPL_OS'], format_func=format_goct),
         Measurement_Text('others', multiline=True),
-        Measurement_Text('Impression', format_region='p', multiline=True)  
+        Measurement_Text('Impression', format_region='p', multiline=True),
     ]
 )
 
 ########################## Plasty
 form_plasty = Form(
     label = "Plasty",
-    measurement_list = [
+    control_list = [
         Measurement_Text('MRD'),
         Measurement_Text('LF'),
         Measurement_Text('Exo', ['OD', 'PD', 'OS'], format_func=format_exo),
@@ -1239,18 +1349,19 @@ form_plasty = Form(
 ########################## DED
 form_dryeye = Form(
     label="DryEye",
-    measurement_list=[
-        Measurement_Check('Symptom', ['dry eye', 'dry mouth', 'pain','photophobia','tearing','discharge'], compact=True, format_region='s'),
+    control_list=[
+        Measurement_Check('Symptom', ['dry eye', 'dry mouth', 'pain','photophobia','tearing','discharge'], compact=True, format_region='s', tristate=True),
         Measurement_Text('Other Symptoms', '', format_region='s', multiline=True),
-        Measurement_Check('Affected QoL', ['driving', 'reading', 'work', 'outdoor', 'depressed']),
+        Measurement_Check('Affected QoL', ['driving', 'reading', 'work', 'outdoor', 'depressed'], tristate=True),
         Measurement_Text('3C_hrs', ''),
         Measurement_Text('SPEED', ''),
         Measurement_Text('OSDI', ''),
         Measurement_Text('History', '', format_region='s', multiline=True),
-        Measurement_Check('PHx', ['DM', 'Hyperlipidemia', 'Sjogren','GVHD', 'AlloPBSCT', 'Seborrheic','Smoking', 'CATA', 'Refractive', 'IPL', 'Cosmetics'], compact=True, format_region='s'),
-        Measurement_Text('Schirmer 1', format_func=format_text_slash_mm),
+        Measurement_Check('PHx', ['DM', 'Hyperlipidemia', 'Sjogren','GVHD', 'AlloPBSCT', 'Seborrheic','Smoking', 'CATA', 'Refractive', 'IPL', 'Cosmetics'], compact=True, format_region='s', tristate=True),
+        Measurement_Text('Schirmer 1 test', format_func=format_text_slash_mm),
         Measurement_Text('TBUT', format_func=format_text_slash),
         Measurement_Text('NEI'),
+        Measurement_Check('Conjunctivochalasis', ['OD','OS'], compact=True),
         Measurement_Check('MCJ_displacement', ['OD','OS'], compact=True),
         Measurement_Text('Telangiectasia'),
         Measurement_Check('MG plugging', ['OD','OS'], compact=True),
@@ -1261,7 +1372,7 @@ form_dryeye = Form(
         Measurement_Text('MG atrophy(OD)',['upper','lower'], format_func=format_text_parentheses),
         Measurement_Text('MG atrophy(OS)',['upper','lower'], format_func=format_text_parentheses),
         Measurement_Text('Lipiview', multiline=True),
-        Measurement_Check('Lab abnormal', ['SSA/B', 'ANA', 'RF', 'dsDNA', 'ESR'], compact=True),
+        Measurement_Check('Lab abnormal', ['SSA/B', 'ANA', 'RF', 'dsDNA', 'ESR'], compact=True, tristate=True),
         Measurement_Text('Impression','', format_func=format_no_output, format_region='p'),
         Measurement_Check('Treatment', ['NPAT', 'Restasis', 'Autoserum', 'Diquas', 'IPL', 'Punctal plug'], compact=True),
     ]
@@ -1269,14 +1380,14 @@ form_dryeye = Form(
 
 form_ipl = Form(
     label="IPL",
-    measurement_list=[
+    control_list=[
         Measurement_Text('IPL NO', '', format_region='p'),
         Measurement_Check('Post-IPL', [''], compact=True),
         Measurement_Text('Massage(OD)', ['upper','lower'], format_region='p'),
         Measurement_Text('Massage(OS)', ['upper','lower'], format_region='p'),
-        Measurement_Check('Improved Symptoms', ['dry eye', 'dry mouth', 'pain','photophobia','tearing','discharge'], compact=True),
+        Measurement_Check('Improved Symptoms', ['dry eye', 'dry mouth', 'pain','photophobia','tearing','discharge'], compact=True, tristate=True),
         Measurement_Text('Other Symptoms', '', multiline=True),
-        Measurement_Check('Improved QoL', ['driving', 'reading', 'work', 'outdoor', 'depressed']),
+        Measurement_Check('Improved QoL', ['driving', 'reading', 'work', 'outdoor', 'depressed'], tristate=True),
         Measurement_Text('SPEED', ''),
         Measurement_Text('OSDI', ''),
         Measurement_Text('Schirmer 1', format_func=format_text_slash_mm),
@@ -1296,7 +1407,7 @@ iop.add_control(
     item_name='mode',
     control=ft.Dropdown(
         width=100,
-        height=40,
+        height=29,
         content_padding = 10,
         dense=True,
         expand=True,
@@ -1313,34 +1424,405 @@ iop.add_control(
 
 form_ivi = Form(
     label="IVI",
-    measurement_list=[
+    control_list=[
         Measurement_Text('VA'),
         Measurement_Text('REF'),
-        Measurement_Text('K', ['H','V'], format_func=format_text_parentheses),
+        Measurement_Text('K', ['OD','OS'], format_func=format_text_parentheses),
         iop,
         Measurement_Text('Lens'),
         Measurement_Text('CMT'),
         Measurement_Text('Fundus+OCT',[''], multiline=True),
         Measurement_Check('IRF', ['OD','OS'], compact=True),
         Measurement_Check('SRF', ['OD','OS'], compact=True),
+        Measurement_Check('PED', ['OD','OS'], compact=True),
         Measurement_Check('SHRM', ['OD','OS'], compact=True),
         Measurement_Check('Atrophy', ['OD','OS'], compact=True),
         Measurement_Check('Gliosis', ['OD','OS'], compact=True),
         Measurement_Check('Schisis', ['OD','OS'], compact=True),
         Measurement_Check('New hemorrhage', ['OD','OS'], compact=True),
+        ft.Divider(height=0, thickness=3),
         Measurement_Check('Impression_OD', ['AMD','PCV', 'RAP', 'mCNV', 'CRVO', 'BRVO', 'DME', 'VH', 'CME', 'PDR', 'NVG', 'IGS', 'CSCR'], compact=True),
         Measurement_Check('Treatment_OD', ['Eylea','Lucentis', 'Avastin', 'Ozurdex', 'Beovu', 'Faricimab', 'Gas'], compact=True),
-        Measurement_Text('Other Impression', multiline=True),
+        ft.Divider(height=0, thickness=3),
         Measurement_Check('Impression_OS', ['AMD','PCV', 'RAP', 'mCNV', 'CRVO', 'BRVO', 'DME', 'VH', 'CME', 'PDR', 'NVG', 'IGS', 'CSCR'], compact=True),
         Measurement_Check('Treatment_OS', ['Eylea','Lucentis', 'Avastin', 'Ozurdex', 'Beovu', 'Faricimab', 'Gas'], compact=True),
+        Measurement_Text('Other Impression', multiline=True),
     ]
 )
+
+form_uveitis = Form(
+    label="Uveitis",
+    control_list=[
+        Measurement_Text('Symptoms',[''], format_region='s', multiline=True),
+        
+        Measurement_Text('History', [''], format_region='s', multiline=True),
+        ft.Divider(height=0, thickness=3),
+        Measurement_Text('VA'),
+        Measurement_Text('REF'),
+        Measurement_Text('IOP', format_func=format_iop),
+        Measurement_Dropdown('KP_SIZE', {
+            'OD':['fine','small','medium','large'],
+            'OS':['fine','small','medium','large'],
+        }),
+        Measurement_Text('KP_NUM'),
+        Measurement_Dropdown('AC cells', {
+            'OD':['0','0.5+','1+','2+','3+','4+'],
+            'OS':['0','0.5+','1+','2+','3+','4+'],
+        }),
+        Measurement_Dropdown('AC flare', {
+            'OD':['0','0.5+','1+','2+','3+','4+'],
+            'OS':['0','0.5+','1+','2+','3+','4+'],
+        }),
+        Measurement_Check('Anterior segment(OD)', ['hypopyon','PAS', 'PS'], compact=True),
+        Measurement_Check('Anterior segment(OS)', ['hypopyon','PAS', 'PS'], compact=True),
+        Measurement_Check('Iris(OD)', ['atrophy(diffuse)','atrophy(sector)', 'nodule(margin)', 'nodule(stroma)'], compact=True),
+        Measurement_Check('Iris(OS)', ['atrophy(diffuse)','atrophy(sector)', 'nodule(margin)', 'nodule(stroma)'], compact=True),
+        ft.Divider(height=0, thickness=3),
+        Measurement_Dropdown('Vitreous cells', {
+            'OD':['0','0.5+','1+','2+','3+','4+'],
+            'OS':['0','0.5+','1+','2+','3+','4+'],
+        }),
+        Measurement_Dropdown('Vitreous haze', {
+            'OD':['0','1','2','3','4'],
+            'OS':['0','1','2','3','4'],
+        }),
+        Measurement_Dropdown('Scleritis', {
+            'OD':['anterior', 'posterior', 'diffuse', 'nodular', 'necrotizing'],
+            'OS':['anterior', 'posterior', 'diffuse', 'nodular', 'necrotizing'],
+        }),
+        ft.Divider(height=0, thickness=3),
+        Measurement_Check('Ind(OD)', ['Snow bank','Snow ball', 'vasculitis', 'retinitis', 'chorioretinitis', 'hemorrhage'], compact=True),
+        Measurement_Check('Ind(OS)', ['Snow bank','Snow ball', 'vasculitis', 'retinitis', 'chorioretinitis', 'hemorrhage'], compact=True),
+        Measurement_Text('CMT'),
+        Measurement_Text('Ind/OCT', [''], multiline=True),
+        Measurement_Text('FAG/ICG', [''], multiline=True),
+        ft.Divider(height=0, thickness=3),
+        Measurement_Dropdown('Diagnosis', {
+            'Laterality':['Unilateral','Bilateral','Alt. unilateral'],
+            'Location':['Anterior','Posterior','Intermediate','Pan'],
+            'Granulomatous':['G.', 'Non-G']
+        }, format_region='p'),
+        Measurement_Check('Diagnosis with', ['Glaucoma','Retinal vasculitis'], format_region='p', compact=True),
+        Measurement_Text('Note', [''], format_region='p', multiline=True),
+        Measurement_Text('Follow period', [''], format_region='p', multiline=True),
+
+    ]
+)
+
+
+# FIXME   '''Testing'''
+def plot_IVI(e=None):
+    import plotly.graph_objects as go
+
+    # Manually input the data as Python lists
+    dates = ['2020-11-25', '2020-12-09', '2020-12-25', '2021-02-23', '2021-05-26', '2021-11-25']
+    va_od = [0.05,0.05,0.2,0.5,0.7,0.8]
+    va_os = [1.0,0.9,1.0,0.8,0.9,0.8]
+    cmt_od = [642,730,650,462,370,361]
+    cmt_os = [280, 267,270,265,262, 265]
+
+    # Create a line plot with two y-axes
+    fig = go.Figure()
+
+    # Add the line plot for measurementA
+    fig.add_trace(
+        go.Line(
+            x=dates, 
+            y=va_od, 
+            name='VA_OD', 
+            # line=dict(color='blue')
+        )
+    )
+
+    fig.add_trace(
+        go.Line(
+            x=dates, 
+            y=va_os, 
+            name='VA_OS', 
+            # line=dict(color='blue')
+        )
+    )
+
+    # Add the line plot for measurementB
+    fig.add_trace(
+        go.Line(
+            x=dates,
+            y=cmt_od,
+            name='CMT_OD',
+            # line=dict(color='red'),
+            yaxis='y2'
+        )
+    )
+
+    # Add the line plot for measurementB
+    fig.add_trace(
+        go.Line(
+            x=dates,
+            y=cmt_os,
+            name='CMT_OS',
+            # line=dict(color='red'),
+            yaxis='y2'
+        )
+    )
+
+    # Set the title and axis labels
+    fig.update_layout(
+        # title='Measurement A and B over Time',
+        xaxis=dict(
+            title='Date',
+            tickmode='linear',
+            dtick='M1',  # Adjust the spacing between ticks here (M1 indicates monthly spacing)
+            tickformat='%Y-%m-%d'),  # Custom tick label format (abbreviated month and year)
+        yaxis=dict(title='VA', color='blue'),
+        yaxis2=dict(title='CMT', color='red', overlaying='y', side='right'),
+        hovermode='x unified',
+        xaxis_hoverformat='%Y-%m-%d',
+    )
+
+    fig.update_xaxes(showspikes=True, showline=False, spikedash='dash', showticklabels = True)
+
+
+    # Add vertical lines and annotations
+    vertical_lines = ['2020-11-25', '2021-01-02']
+    annotations = ['IVIO OD', 'IVIE OD']
+
+    for i in range(len(vertical_lines)):
+        fig.add_shape(
+            type='line',
+            x0=vertical_lines[i],
+            x1=vertical_lines[i],
+            y0=0,
+            y1=1,
+            xref='x',
+            yref='paper',
+            line=dict(color='black', dash='dash'),
+            name=f'Event {i+1}',
+            # hovertemplate=f'<b>Event {i+1}</b><br>Date: {vertical_lines[i]}'
+        )
+        fig.add_trace(go.Scatter(x=[vertical_lines[i], vertical_lines[i]], y=[0, 1], mode='lines',
+                                line=dict(color='black', dash='dash'),
+                                name=annotations[i],
+                                hovertemplate=f'Date: {vertical_lines[i]}',showlegend=False))
+
+        fig.add_annotation(x=vertical_lines[i], y=1.1, xref='x', yref='paper',
+                        text=annotations[i], showarrow=False)
+
+    # Show the plot
+    fig.show()
+    
+
+# FIXME 
+class Data_row(ft.UserControl):
+    def __init__(self, column_names, values) -> None:
+        super().__init__()
+        self.column_names = column_names
+        self.values = values
+    
+    def build(self):
+        button_remove = ft.FloatingActionButton(
+            icon=ft.icons.REMOVE,
+            height=40*FONT_SIZE_FACTOR+5,
+            width=30,
+            bgcolor=ft.colors.RED,
+            on_click=date_on_focus # TODO
+        )
+        self.body = []
+        for column_name in self.column_names:
+            if column_name == '日期':
+                text = ft.TextField(
+                    read_only=True,
+                    # label=column_name,
+                    value=self.values[column_name],
+                    dense=True, 
+                    height=40*FONT_SIZE_FACTOR+5, 
+                    cursor_height=20*FONT_SIZE_FACTOR, 
+                    content_padding = 10*FONT_SIZE_FACTOR,
+                    width=90,
+                    border=ft.InputBorder.UNDERLINE,
+                    filled=True,
+                )
+            else:
+                text = ft.TextField(
+                    read_only=True,
+                    # label=column_name,
+                    value=self.values[column_name],
+                    dense=True, 
+                    height=40*FONT_SIZE_FACTOR+5, 
+                    cursor_height=20*FONT_SIZE_FACTOR, 
+                    content_padding = 10*FONT_SIZE_FACTOR,
+                    expand=True,
+                    border=ft.InputBorder.UNDERLINE,
+                    filled=True,
+                )
+            
+            self.body.append(text)
+
+        self.body.append(button_remove)
+        
+        return ft.Row(controls=self.body)
+
+# FIXME 
+class Data_table(ft.UserControl):
+    def __init__(self, table_name, column_controls: list) -> None:
+        super().__init__()
+        self.table_name = table_name
+        if type(column_controls) != list:
+            self.column_controls = [column_controls]
+        else:
+            self.column_controls = column_controls
+        
+        self.column_names = self.get_column_names()
+        
+        self.data = [ # FIXME
+            {
+                "id": 2,
+                'hisno': '0000',
+                "日期": "20210102",
+                "處置": "IVIE",
+                "側別": "OD",
+                "Note": "less SRF"
+            },
+            {
+                "id": 1,
+                'hisno': '0000',
+                "日期": "20201125",
+                "處置": "IVIO",
+                "側別": "OD",
+                "Note": ""
+            },
+        ]
+        self.data_append = []
+        self.data_remove = []
+
+    def build(self):
+        button_add = ft.FloatingActionButton(
+            icon=ft.icons.ADD,
+            height=40*FONT_SIZE_FACTOR+5,
+            width=30,
+            on_click=date_on_focus # TODO
+        )
+
+        self.body_input = ft.Row(
+            controls=self.column_controls
+        )
+
+        self.body_input.controls.append(button_add)
+        self.body_rows = []
+        for data in self.data: # FIXME
+            self.body_rows.append(Data_row(self.column_names, data))
+        
+        return ft.Column(controls= [
+            self.body_input,
+            ft.Divider(height=0, thickness=3),
+            *self.body_rows
+        ])
+
+    def get_column_names(self):
+        column_names = []
+        for control in self.column_controls:
+            column_names.append(control.label)
+        return column_names
+
+    # def datatable_add(self, e=None):
+    #     # 資料驗證
+        
+    #     # datable資料新增
+    #     self.body_rows.insert(
+    #         0,
+    #         Data_row(
+    #             self.column_names,
+    #             {
+    #                 # TODO 只尋找self.body_input內除了button的元件 => 考慮新增self.body_input的body
+    #             }
+    #         )
+    #     )
+    #     # 清除輸入框
+    #     pass
+
+    # def datatable_remove(self, e=None): 
+    #     pass
+
+
+def date_on_focus(e=None):
+    e.control.value = ''
+    e.control.update()
+
+
+d = Data_table(
+        table_name="IVI_treatment",
+        column_controls=[
+            ft.TextField(
+                label="日期",
+                value=datetime.date.today().strftime("%Y%m%d"),
+                tooltip=f"輸入處置時間(格式:{datetime.date.today().strftime('%Y%m%d')})",
+                on_focus=date_on_focus,
+
+                dense=True, 
+                height=40*FONT_SIZE_FACTOR+5, 
+                cursor_height=20*FONT_SIZE_FACTOR, 
+                content_padding = 10*FONT_SIZE_FACTOR,
+                width=90,
+            ),
+            ft.Dropdown(
+                label="處置",
+                options=[
+                    ft.dropdown.Option("IVIE"),
+                    ft.dropdown.Option("IVIL"),
+                    ft.dropdown.Option("IVIF"),
+                    ft.dropdown.Option("IVIB"),
+                ],
+                # width=max_length*8+40,
+                dense=True,
+                height=40*FONT_SIZE_FACTOR+5,
+                content_padding=6,
+                text_size=15,
+                expand=True
+            ),
+            ft.Dropdown(
+                label="側別",
+                options=[
+                    ft.dropdown.Option("OD"),
+                    ft.dropdown.Option("OS"),
+                    ft.dropdown.Option("OU"),
+                ],
+                # width=max_length*8+40,
+                dense=True,
+                height=40*FONT_SIZE_FACTOR+5,
+                content_padding=6,
+                text_size=15,
+                expand=True
+            ),
+            ft.TextField(
+                label="Note",
+                
+                dense=True, 
+                # height=40*FONT_SIZE_FACTOR+5, 
+                cursor_height=20*FONT_SIZE_FACTOR, 
+                content_padding = 10*FONT_SIZE_FACTOR,
+                multiline=True,
+                expand=True,
+            )
+        ]
+    )
+
+
+form_test = Form(
+    label="IVI_treatment",
+    control_list=[
+        ft.ElevatedButton("IVI歷程圖", on_click=plot_IVI),
+        # Measurement_Text('VA'),
+        # Measurement_Text('REF'),
+        d
+    ]
+)
+
+# FIXME   '''Testing'''
 
 ########################## MERGE
 db_conn = None
 cursor = None
 
-form_list_tuples = (form_dryeye, form_ipl, form_basic, form_ivi, form_plasty) # 不應該被變更的所有form_list
+form_list_tuples = (form_dryeye, form_ipl, form_basic, form_plasty, form_uveitis, form_ivi) # 不應該被變更的所有form_list
 forms = Forms(form_list_tuples) # 初始化註冊所有forms
 
 if __name__ == '__main__': # load這個library來建立DB
